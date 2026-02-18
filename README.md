@@ -4,7 +4,7 @@ A standardized metric and optimizer for LLM prompt efficiency, enabling sustaina
 
 ## Status
 
-> **🚧 In Progress** — Active research project targeting COLM 2026 (deadline: Mar 31, 2026).
+> **🚧 In Progress**
 
 ## Installation
 
