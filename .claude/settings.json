@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== GreenPES Session Context ===' && echo '' && if [ -f PROGRESS.md ]; then cat PROGRESS.md; else echo 'PROGRESS.md not found. Run /update-progress to create it.'; fi && echo '' && echo '=== Git Status ===' && git status --short 2>/dev/null | head -20"
+          }
+        ]
+      }
+    ]
+  }
+}

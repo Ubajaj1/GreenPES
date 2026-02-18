@@ -116,3 +116,13 @@ paper/drafts/
 # Cache
 .cache/
 *.cache
+
+# Research plans (private - do not commit)
+docs/plans/
+greenpes_implementation_plan.md
+
+# Claude Code local settings (machine-specific, may contain sensitive paths)
+.claude/settings.local.json
+
+# Memory files (Claude Code auto-memory, session-specific)
+.claude/projects/
