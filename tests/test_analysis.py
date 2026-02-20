@@ -196,9 +196,8 @@ class TestRQ4:
 
     def test_handles_constant_quality(self):
         """pearsonr must not raise when all quality values are identical."""
-        import copy
         df_const = self.df.copy()
         df_const['quality'] = 1.0
-        fig, stats = rq4_quality_tradeoff(df_const)   # must not raise
+        fig, _ = rq4_quality_tradeoff(df_const)   # must not raise
         assert isinstance(fig, Figure)
         plt.close(fig)

@@ -339,10 +339,10 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     )
 
     # Pearson r at aggregate level (matches what the scatter plot shows)
+    r_agg: float = float('nan')
     if len(agg) >= 2 and agg['mean_tokens'].std() > 0 and agg['mean_quality'].std() > 0:
-        r_agg, _ = pearsonr(agg['mean_tokens'], agg['mean_quality'])  # type: ignore[call-overload]
-    else:
-        r_agg = float('nan')
+        _res = pearsonr(agg['mean_tokens'], agg['mean_quality'])  # type: ignore[call-overload]
+        r_agg = float(_res[0])  # type: ignore[arg-type]
 
     # Pareto frontier: for each token budget, highest quality
     agg_sorted = agg.sort_values('mean_tokens')  # type: ignore[call-overload]
