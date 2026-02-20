@@ -102,19 +102,37 @@ python experiments/benchmark.py --delay 2.0             # slower for Groq free t
 
 ---
 
-## Phase 5: Analysis Scripts 🔲 PENDING
+## Phase 5: Analysis Scripts ✅ COMPLETE
 
-- [ ] Task 5.1: Create `experiments/analysis.py` (RQ1–RQ4 statistical analysis + 4 figures)
+- [x] Task 5.1: `experiments/analysis.py` — RQ1–RQ4 statistical analysis + 4 figures + `stats_summary.csv`
 
-**Blocked by:** Need `results/benchmark_results.json` from a real benchmark run. Can stub with mock data.
+**Test suite:** `tests/test_analysis.py` — 20 tests, all passing.
 
-**RQ plan:**
-- RQ1: Does prompting strategy significantly affect GreenPES? (ANOVA across 5 strategies)
-- RQ2: Which strategy is most token-efficient per task type?
-- RQ3: Do smaller models achieve competitive GreenPES vs larger ones?
-- RQ4: Is there a quality–efficiency tradeoff across strategies?
+**Benchmark run:** 480 successful runs (6 models × 4 tasks × 5 strategies × 4 examples; gemini-flash skipped — GOOGLE_API_KEY missing at run time)
 
-**Figures planned:** strategy × task heatmap, model comparison bar chart, quality vs token scatter, GreenPES distribution violin plot
+**Key findings:**
+
+| RQ | Result |
+|----|--------|
+| RQ1 | Strategy significantly affects GreenPES: F=16.15, p<0.0001, η²=0.12. `concise` ≈ `zero_shot` (best); `cot` and `few_shot` significantly worse. |
+| RQ2 | `concise` best on 3/4 tasks; `zero_shot` best on QA (mean 14.22 GreenPES, 104 tokens) |
+| RQ3 | gpt-4o-mini (9.48) > kimi-k2 (7.93) > llama-3.3-70b (5.67) > claude-haiku (5.43) > llama-3.1-8b (4.57) > qwen3-32b (1.57) |
+| RQ4 | Pearson r = -0.316 (p<0.0001) — modest negative correlation between tokens and quality |
+
+**Outputs:**
+- `results/benchmark_results.json` — 480 experiment records
+- `results/stats_summary.csv` — all statistical test rows (RQ1–RQ4)
+- `results/figures/fig1_strategy_heatmap.png`
+- `results/figures/fig2_model_comparison.png`
+- `results/figures/fig3_quality_efficiency_scatter.png`
+- `results/figures/fig4_greenpes_distribution.png`
+
+**CLI usage:**
+```bash
+python experiments/analysis.py                                          # default: results/benchmark_results.json
+python experiments/analysis.py --input path/to/results.json
+python experiments/analysis.py --output-dir custom/output/dir/
+```
 
 ---
 
@@ -148,11 +166,10 @@ python experiments/benchmark.py --delay 2.0             # slower for Groq free t
 
 ## Next Steps (in order)
 
-1. **Phase 5** — Create `experiments/analysis.py` (RQ1–RQ4 + 4 figures) **← START HERE next session**
-2. Run full benchmark: `python experiments/benchmark.py --examples 4`
-3. Run analysis: `python experiments/analysis.py`
-4. Write paper
+1. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 submission (deadline: Mar 31) **← START HERE next session**
+2. *(Optional)* Re-run benchmark with gemini-flash once GOOGLE_API_KEY is set: `python experiments/benchmark.py --models gemini-2.0-flash --delay 1.0`
+3. *(Optional)* Run with all 20 examples per task: `python experiments/benchmark.py --examples 20`
 
 ---
 
-*Last updated: 2026-02-18*
+*Last updated: 2026-02-19*
