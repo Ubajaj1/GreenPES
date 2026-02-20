@@ -147,6 +147,11 @@ def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     pivot = pivot.reindex(index=present_strategies, columns=present_tasks)
 
     fig, ax = plt.subplots(figsize=(8, 5))
+    if pivot.empty:
+        ax.text(0.5, 0.5, 'Insufficient data for heatmap', ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Figure 1: Mean GreenPES by Strategy × Task', fontsize=13, pad=12)
+        fig.tight_layout()
+        return fig, stats
     sns.heatmap(
         pivot,
         ax=ax,
