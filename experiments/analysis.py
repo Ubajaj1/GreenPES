@@ -407,6 +407,7 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 def save_stats_csv(all_stats: list[dict], output_dir: str) -> None:
     """Write all collected stats rows to output_dir/stats_summary.csv."""
     path = Path(output_dir) / 'stats_summary.csv'
+    path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(all_stats).to_csv(path, index=False)
     print(f"\nStats saved → {path}")
 
@@ -449,15 +450,15 @@ def main() -> None:
     all_stats.extend(s1)
 
     fig2, s2 = rq2_token_efficiency(df)
-    figures.append(('fig2_model_comparison.png', fig2))
+    figures.append(('fig4_greenpes_distribution.png', fig2))
     all_stats.extend(s2)
 
     fig3, s3 = rq3_model_comparison(df)
-    figures.append(('fig3_quality_efficiency_scatter.png', fig3))
+    figures.append(('fig2_model_comparison.png', fig3))
     all_stats.extend(s3)
 
     fig4, s4 = rq4_quality_tradeoff(df)
-    figures.append(('fig4_greenpes_distribution.png', fig4))
+    figures.append(('fig3_quality_efficiency_scatter.png', fig4))
     all_stats.extend(s4)
 
     save_stats_csv(all_stats, args.output_dir)

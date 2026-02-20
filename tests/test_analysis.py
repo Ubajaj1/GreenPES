@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 import pytest
 import pandas as pd
 
@@ -211,16 +212,23 @@ class TestEndToEnd:
         input_file = tmp_path / 'results.json'
         input_file.write_text(json.dumps(records))
 
+        script = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'experiments' / 'analysis.py'
         result = subprocess.run(
-            [sys.executable, 'experiments/analysis.py',
+            [sys.executable, str(script),
              '--input', str(input_file),
              '--output-dir', str(tmp_path)],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stderr
 
-        # Check all expected outputs exist
-        assert (tmp_path / 'stats_summary.csv').exists()
+        # Check CSV exists and has content
+        csv_path = tmp_path / 'stats_summary.csv'
+        assert csv_path.exists()
+        rows = pd.read_csv(csv_path)
+        assert len(rows) > 0
+        assert set(rows['rq'].unique()) >= {'RQ1', 'RQ2', 'RQ3', 'RQ4'}
+
+        # Check all 4 figure PNGs exist and are non-empty
         figures_dir = tmp_path / 'figures'
         assert figures_dir.is_dir()
         expected_figs = [
@@ -230,4 +238,6 @@ class TestEndToEnd:
             'fig4_greenpes_distribution.png',
         ]
         for fname in expected_figs:
-            assert (figures_dir / fname).exists(), f"Missing: {fname}"
+            fpath = figures_dir / fname
+            assert fpath.exists(), f"Missing: {fname}"
+            assert fpath.stat().st_size > 0, f"Zero-byte file: {fname}"
