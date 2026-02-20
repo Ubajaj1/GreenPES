@@ -181,3 +181,24 @@ class TestRQ4:
         r = pearson_rows[0]['statistic']
         assert -1.0 <= r <= 1.0
         plt.close('all')
+
+    def test_stats_rq_label(self):
+        _, stats = rq4_quality_tradeoff(self.df)
+        assert all(s['rq'] == 'RQ4' for s in stats)
+        plt.close('all')
+
+    def test_stats_have_required_keys(self):
+        _, stats = rq4_quality_tradeoff(self.df)
+        row = stats[0]
+        for key in ('rq', 'test', 'statistic', 'p_value', 'effect_size', 'effect_metric', 'notes'):
+            assert key in row
+        plt.close('all')
+
+    def test_handles_constant_quality(self):
+        """pearsonr must not raise when all quality values are identical."""
+        import copy
+        df_const = self.df.copy()
+        df_const['quality'] = 1.0
+        fig, stats = rq4_quality_tradeoff(df_const)   # must not raise
+        assert isinstance(fig, Figure)
+        plt.close(fig)

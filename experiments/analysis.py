@@ -313,14 +313,18 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     print("\n── RQ4: Quality–efficiency tradeoff ──")
 
     # Pearson r on all records
-    r, p = pearsonr(df['total_tokens'], df['quality'])
-    print(f"  Pearson r (tokens vs quality): r={r:.3f}, p={p:.4f}")
+    if df['total_tokens'].std() == 0 or df['quality'].std() == 0:
+        print("  Pearson r: skipped (constant column, insufficient variance)")
+        r, p = float('nan'), float('nan')
+    else:
+        r, p = pearsonr(df['total_tokens'], df['quality'])
+        print(f"  Pearson r (tokens vs quality): r={r:.3f}, p={p:.4f}")
 
     stats: list[dict] = [{
         'rq': 'RQ4',
         'test': 'Pearson r',
-        'statistic': round(float(r), 4),
-        'p_value': round(float(p), 4),
+        'statistic': round(float(r), 4),  # type: ignore[arg-type]
+        'p_value': round(float(p), 4),    # type: ignore[arg-type]
         'effect_size': None,
         'effect_metric': None,
         'notes': 'total_tokens vs quality, all records',
@@ -333,6 +337,12 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
              mean_quality=('quality', 'mean'))
         .reset_index()
     )
+
+    # Pearson r at aggregate level (matches what the scatter plot shows)
+    if len(agg) >= 2 and agg['mean_tokens'].std() > 0 and agg['mean_quality'].std() > 0:
+        r_agg, _ = pearsonr(agg['mean_tokens'], agg['mean_quality'])  # type: ignore[call-overload]
+    else:
+        r_agg = float('nan')
 
     # Pareto frontier: for each token budget, highest quality
     agg_sorted = agg.sort_values('mean_tokens')  # type: ignore[call-overload]
@@ -384,7 +394,8 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
     ax.set_xlabel('Mean Total Tokens')
     ax.set_ylabel('Mean Quality Score')
-    ax.set_title(f'Figure 4: Quality vs Token Cost (r={r:.2f})', fontsize=13)
+    r_agg_label = f'{r_agg:.2f}' if r_agg == r_agg else 'N/A'
+    ax.set_title(f'Figure 4: Quality vs Token Cost (agg r={r_agg_label})', fontsize=13)
     ax.legend(fontsize=8, bbox_to_anchor=(1.01, 1), loc='upper left')
     fig.tight_layout()
 
