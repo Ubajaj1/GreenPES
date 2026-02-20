@@ -9,7 +9,8 @@ import pandas as pd
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.analysis import load_and_clean, REQUIRED_COLS
+from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect
+import matplotlib.pyplot as plt
 
 
 def make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=2) -> list[dict]:
@@ -70,3 +71,31 @@ class TestLoadAndClean:
     def test_raises_on_missing_file(self):
         with pytest.raises(FileNotFoundError):
             load_and_clean('/nonexistent/path.json')
+
+
+class TestRQ1:
+    def setup_method(self):
+        records = make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=4)
+        path = write_json(records)
+        self.df = load_and_clean(path)
+
+    def test_returns_figure_and_stats(self):
+        fig, stats = rq1_strategy_effect(self.df)
+        assert isinstance(fig, plt.Figure)
+        assert isinstance(stats, list)
+        assert len(stats) > 0
+        plt.close(fig)
+
+    def test_stats_have_required_keys(self):
+        _, stats = rq1_strategy_effect(self.df)
+        row = stats[0]
+        assert 'rq' in row
+        assert 'test' in row
+        assert 'statistic' in row
+        assert 'p_value' in row
+        plt.close('all')
+
+    def test_stats_rq_label(self):
+        _, stats = rq1_strategy_effect(self.df)
+        assert all(s['rq'] == 'RQ1' for s in stats)
+        plt.close('all')

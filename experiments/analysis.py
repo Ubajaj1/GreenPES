@@ -84,7 +84,84 @@ def load_and_clean(path: str) -> pd.DataFrame:
 # ── RQ functions ──────────────────────────────────────────────────────────────
 
 def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
-    pass  # Task 3
+    """
+    RQ1: Does prompting strategy significantly affect GreenPES?
+
+    - One-way ANOVA across strategy groups
+    - Post-hoc Tukey HSD for pairwise comparisons
+    - Effect size: eta-squared
+    - Figure: heatmap of mean GreenPES by strategy × task
+    """
+    print("\n── RQ1: Strategy effect on GreenPES ──")
+
+    strategies = df['strategy'].unique()
+    groups = [df[df['strategy'] == s]['greenpes'].values for s in strategies]
+
+    # One-way ANOVA
+    f_stat, p_val = f_oneway(*groups)
+    # Eta-squared: SS_between / SS_total
+    grand_mean = df['greenpes'].mean()
+    ss_between = sum(
+        len(g) * (g.mean() - grand_mean) ** 2
+        for g in groups
+    )
+    ss_total = ((df['greenpes'] - grand_mean) ** 2).sum()
+    eta_sq = ss_between / ss_total if ss_total > 0 else 0.0
+
+    print(f"  ANOVA: F={f_stat:.3f}, p={p_val:.4f}, η²={eta_sq:.3f}")
+
+    stats = [{
+        'rq': 'RQ1',
+        'test': 'one-way ANOVA',
+        'statistic': round(f_stat, 4),
+        'p_value': round(p_val, 4),
+        'effect_size': round(eta_sq, 4),
+        'effect_metric': 'eta_squared',
+        'notes': f'groups={list(strategies)}',
+    }]
+
+    # Tukey HSD post-hoc (scipy >= 1.8)
+    tukey = tukey_hsd(*groups)
+    for i, s1 in enumerate(strategies):
+        for j, s2 in enumerate(strategies):
+            if j <= i:
+                continue
+            p = tukey.pvalue[i, j]
+            stats.append({
+                'rq': 'RQ1',
+                'test': 'Tukey HSD',
+                'statistic': round(tukey.statistic[i, j], 4),
+                'p_value': round(p, 4),
+                'effect_size': None,
+                'effect_metric': None,
+                'notes': f'{s1} vs {s2}',
+            })
+            sig = '✓' if p < 0.05 else '✗'
+            print(f"    {sig} {s1} vs {s2}: p={p:.4f}")
+
+    # Figure 1: heatmap of mean GreenPES by strategy × task
+    pivot = df.groupby(['strategy', 'task'])['greenpes'].mean().unstack()
+    # Ensure consistent ordering
+    present_strategies = [s for s in STRATEGIES if s in pivot.index]
+    present_tasks = [t for t in TASKS if t in pivot.columns]
+    pivot = pivot.reindex(index=present_strategies, columns=present_tasks)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.heatmap(
+        pivot,
+        ax=ax,
+        annot=True,
+        fmt='.2f',
+        cmap='RdYlGn',
+        linewidths=0.5,
+        cbar_kws={'label': 'Mean GreenPES'},
+    )
+    ax.set_title('Figure 1: Mean GreenPES by Strategy × Task', fontsize=13, pad=12)
+    ax.set_xlabel('Task')
+    ax.set_ylabel('Strategy')
+    fig.tight_layout()
+
+    return fig, stats
 
 
 def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
