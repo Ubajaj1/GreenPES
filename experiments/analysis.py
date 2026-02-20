@@ -188,7 +188,7 @@ def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
     stats = []
     for task in df['task'].unique():
-        sub = agg[agg['task'] == task].sort_values('mean_greenpes', ascending=False)
+        sub = agg[agg['task'] == task].sort_values('mean_greenpes', ascending=False)  # type: ignore[call-overload]
         winner = sub.iloc[0]
         print(f"  {task}: best strategy = {winner['strategy']} "
               f"(GreenPES={winner['mean_greenpes']:.2f}, tokens={winner['mean_tokens']:.0f})")
@@ -206,12 +206,12 @@ def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
             stats.append({
                 'rq': 'RQ2',
                 'test': 'mean_greenpes',
-                'statistic': round(float(row['mean_greenpes']), 4),
+                'statistic': round(float(row['mean_greenpes']), 4),  # type: ignore[arg-type]
                 'p_value': None,
                 'effect_size': None,
                 'effect_metric': None,
                 'notes': f"task={task}, strategy={row['strategy']}, "
-                         f"mean_tokens={round(float(row['mean_tokens']), 1)}",
+                         f"mean_tokens={round(float(row['mean_tokens']), 1)}",  # type: ignore[arg-type]
             })
 
     # Figure 2: grouped bar chart
@@ -223,9 +223,9 @@ def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     bar_width = 0.15
     for i, strategy in enumerate(present_strategies):
         sub = agg[agg['strategy'] == strategy].set_index('task')
-        heights = [float(sub.loc[t, 'mean_greenpes']) if t in sub.index else 0.0
+        heights = [float(sub.loc[t, 'mean_greenpes']) if t in sub.index else 0.0  # type: ignore[arg-type]
                    for t in present_tasks]
-        errs = [float(sub.loc[t, 'std_greenpes']) if t in sub.index else 0.0
+        errs = [float(sub.loc[t, 'std_greenpes']) if t in sub.index else 0.0  # type: ignore[arg-type]
                 for t in present_tasks]
         offset = (i - len(present_strategies) / 2) * bar_width + bar_width / 2
         ax.bar([xi + offset for xi in x], heights, bar_width,
