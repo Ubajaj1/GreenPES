@@ -269,7 +269,8 @@ def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     stats = []
     for _, row in agg.iterrows():
         mean_val = float(row['mean_greenpes'])  # type: ignore[arg-type]
-        std_val = float(row['std_greenpes'])    # type: ignore[arg-type]
+        std_raw = float(row['std_greenpes'])    # type: ignore[arg-type]
+        std_val = std_raw if std_raw == std_raw else 0.0  # guard NaN
         n_val = int(row['n'])                   # type: ignore[arg-type]
         model_name = str(row['model'])          # type: ignore[arg-type]
         print(f"  {model_name}: mean={mean_val:.2f}, std={std_val:.2f}, n={n_val}")
@@ -278,16 +279,16 @@ def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
             'test': 'mean_greenpes',
             'statistic': round(mean_val, 4),
             'p_value': None,
-            'effect_size': round(std_val, 4),
+            'effect_size': round(std_val, 4),   # std used here (unlike RQ1 eta-squared)
             'effect_metric': 'std',
             'notes': f'model={model_name}, n={n_val}',
         })
 
     # Figure 3: horizontal bar chart
     fig, ax = plt.subplots(figsize=(8, 5))
-    means = [float(agg.loc[i, 'mean_greenpes']) for i in range(len(agg))]  # type: ignore[arg-type]
-    stds  = [float(agg.loc[i, 'std_greenpes'])  for i in range(len(agg))]  # type: ignore[arg-type]
-    labels = [str(agg.loc[i, 'model']) for i in range(len(agg))]           # type: ignore[arg-type]
+    means  = agg['mean_greenpes'].tolist()
+    stds   = [v if v == v else 0.0 for v in agg['std_greenpes'].fillna(0.0).tolist()]
+    labels = agg['model'].tolist()
     y = range(len(labels))
     ax.barh(list(y), means, xerr=stds, capsize=4, color='steelblue', alpha=0.85)
     ax.set_yticks(list(y))
@@ -301,7 +302,7 @@ def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
 
 def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
-    pass  # Task 6
+    raise NotImplementedError("Task 6")
 
 
 # ── Output helpers ────────────────────────────────────────────────────────────

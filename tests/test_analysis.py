@@ -146,3 +146,16 @@ class TestRQ3:
         models = self.df['model'].unique()
         assert len(stats) == len(models)
         plt.close('all')
+
+    def test_stats_rq_label(self):
+        _, stats = rq3_model_comparison(self.df)
+        assert all(s['rq'] == 'RQ3' for s in stats)
+        plt.close('all')
+
+    def test_stats_have_required_keys(self):
+        _, stats = rq3_model_comparison(self.df)
+        row = stats[0]
+        for key in ('rq', 'test', 'statistic', 'p_value', 'effect_size', 'effect_metric', 'notes'):
+            assert key in row
+        assert row['effect_metric'] == 'std'
+        plt.close('all')
