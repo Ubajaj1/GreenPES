@@ -242,7 +242,62 @@ def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
 
 def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
-    pass  # Task 5
+    """
+    RQ3: Do smaller models achieve competitive GreenPES vs larger ones?
+
+    - Groups by model, computes mean GreenPES ± std
+    - Orders models by MODEL_ORDER (small → large) where possible
+    - Figure: horizontal bar chart with error bars (one row per model)
+    - Stats: one row per model
+    """
+    print("\n── RQ3: Model comparison ──")
+
+    agg = (
+        df.groupby('model')
+        .agg(mean_greenpes=('greenpes', 'mean'),
+             std_greenpes=('greenpes', 'std'),
+             n=('greenpes', 'count'))
+        .reset_index()
+    )
+
+    # Order by MODEL_ORDER where possible; unknown models appended at end
+    known = [m for m in MODEL_ORDER if m in agg['model'].values]
+    unknown = [m for m in agg['model'].values if m not in MODEL_ORDER]
+    order = known + unknown
+    agg = agg.set_index('model').reindex(order).reset_index()
+
+    stats = []
+    for _, row in agg.iterrows():
+        mean_val = float(row['mean_greenpes'])  # type: ignore[arg-type]
+        std_val = float(row['std_greenpes'])    # type: ignore[arg-type]
+        n_val = int(row['n'])                   # type: ignore[arg-type]
+        model_name = str(row['model'])          # type: ignore[arg-type]
+        print(f"  {model_name}: mean={mean_val:.2f}, std={std_val:.2f}, n={n_val}")
+        stats.append({
+            'rq': 'RQ3',
+            'test': 'mean_greenpes',
+            'statistic': round(mean_val, 4),
+            'p_value': None,
+            'effect_size': round(std_val, 4),
+            'effect_metric': 'std',
+            'notes': f'model={model_name}, n={n_val}',
+        })
+
+    # Figure 3: horizontal bar chart
+    fig, ax = plt.subplots(figsize=(8, 5))
+    means = [float(agg.loc[i, 'mean_greenpes']) for i in range(len(agg))]  # type: ignore[arg-type]
+    stds  = [float(agg.loc[i, 'std_greenpes'])  for i in range(len(agg))]  # type: ignore[arg-type]
+    labels = [str(agg.loc[i, 'model']) for i in range(len(agg))]           # type: ignore[arg-type]
+    y = range(len(labels))
+    ax.barh(list(y), means, xerr=stds, capsize=4, color='steelblue', alpha=0.85)
+    ax.set_yticks(list(y))
+    ax.set_yticklabels(labels)
+    ax.set_xlabel('Mean GreenPES')
+    ax.set_title('Figure 3: Mean GreenPES by Model (small → large)', fontsize=13)
+    ax.invert_yaxis()   # smallest model at top
+    fig.tight_layout()
+
+    return fig, stats
 
 
 def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:

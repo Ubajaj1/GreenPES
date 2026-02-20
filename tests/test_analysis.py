@@ -9,7 +9,7 @@ import pandas as pd
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect, rq2_token_efficiency
+from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect, rq2_token_efficiency, rq3_model_comparison
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
@@ -125,4 +125,24 @@ class TestRQ2:
         winners = [s for s in stats if s.get('test') == 'winner']
         tasks = self.df['task'].unique()
         assert len(winners) == len(tasks)
+        plt.close('all')
+
+
+class TestRQ3:
+    def setup_method(self):
+        records = make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=4)
+        path = write_json(records)
+        self.df = load_and_clean(path)
+
+    def test_returns_figure_and_stats(self):
+        fig, stats = rq3_model_comparison(self.df)
+        assert isinstance(fig, Figure)
+        assert isinstance(stats, list)
+        assert len(stats) > 0
+        plt.close(fig)
+
+    def test_one_stat_row_per_model(self):
+        _, stats = rq3_model_comparison(self.df)
+        models = self.df['model'].unique()
+        assert len(stats) == len(models)
         plt.close('all')
