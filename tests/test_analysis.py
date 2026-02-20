@@ -59,7 +59,7 @@ class TestLoadAndClean:
         records.append({'model': 'x', 'task': 'qa', 'strategy': 'zero_shot', 'error': 'timeout'})
         path = write_json(records)
         df = load_and_clean(path)
-        assert 'error' not in df.columns or df['error'].isna().all()
+        assert 'error' not in df.columns or bool(df['error'].isna().all())
         assert len(df) == len(records) - 1
 
     def test_required_columns_present(self):
