@@ -52,7 +52,33 @@ REQUIRED_COLS = {
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_and_clean(path: str) -> pd.DataFrame:
-    pass  # Task 2
+    """Load benchmark_results.json, drop error records, validate schema."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Results file not found: {path}")
+
+    with open(p) as f:
+        raw = json.load(f)
+
+    # Drop records that represent failed API calls
+    good = [r for r in raw if 'error' not in r]
+    n_errors = len(raw) - len(good)
+    if n_errors:
+        print(f"  Dropped {n_errors} error records (failed API calls)")
+
+    df = pd.DataFrame(good)
+
+    missing = REQUIRED_COLS - set(df.columns)
+    if missing:
+        raise ValueError(f"Results missing required columns: {missing}")
+
+    # Data summary
+    print(f"\nData summary ({len(df)} successful runs):")
+    for col, vals in [('model', df['model'].unique()), ('task', df['task'].unique()),
+                      ('strategy', df['strategy'].unique())]:
+        print(f"  {col}s ({len(vals)}): {', '.join(sorted(vals))}")
+
+    return df
 
 
 # ── RQ functions ──────────────────────────────────────────────────────────────

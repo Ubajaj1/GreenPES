@@ -1,0 +1,72 @@
+"""Tests for experiments/analysis.py."""
+
+import json
+import os
+import tempfile
+import pytest
+import pandas as pd
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from experiments.analysis import load_and_clean, REQUIRED_COLS
+
+
+def make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=2) -> list[dict]:
+    """Build a minimal synthetic results list for testing."""
+    models = ['llama-3.1-8b', 'gpt-4o-mini'][:n_models]
+    tasks = ['qa', 'summarization'][:n_tasks]
+    strategies = ['zero_shot', 'concise'][:n_strategies]
+    records = []
+    base_greenpes = 10.0
+    for model in models:
+        for task in tasks:
+            for strategy in strategies:
+                for ex in range(n_examples):
+                    records.append({
+                        'model': model,
+                        'task': task,
+                        'strategy': strategy,
+                        'example_id': ex,
+                        'greenpes': base_greenpes + ex,
+                        'quality': 0.8 + ex * 0.05,
+                        'input_tokens': 20 + ex * 5,
+                        'output_tokens': 10 + ex * 2,
+                        'total_tokens': 30 + ex * 7,
+                        'latency_ms': 100.0,
+                        'task_completed': True,
+                    })
+                    base_greenpes += 0.5
+    return records
+
+
+def write_json(records: list[dict]) -> str:
+    """Write records to a temp JSON file, return path."""
+    f = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    json.dump(records, f)
+    f.close()
+    return f.name
+
+
+class TestLoadAndClean:
+    def test_returns_dataframe(self):
+        path = write_json(make_synthetic_results())
+        df = load_and_clean(path)
+        assert isinstance(df, pd.DataFrame)
+
+    def test_drops_error_records(self):
+        records = make_synthetic_results()
+        records.append({'model': 'x', 'task': 'qa', 'strategy': 'zero_shot', 'error': 'timeout'})
+        path = write_json(records)
+        df = load_and_clean(path)
+        assert 'error' not in df.columns or df['error'].isna().all()
+        assert len(df) == len(records) - 1
+
+    def test_required_columns_present(self):
+        path = write_json(make_synthetic_results())
+        df = load_and_clean(path)
+        assert REQUIRED_COLS.issubset(set(df.columns))
+
+    def test_raises_on_missing_file(self):
+        with pytest.raises(FileNotFoundError):
+            load_and_clean('/nonexistent/path.json')
