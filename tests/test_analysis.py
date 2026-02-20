@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import tempfile
 import pytest
 import pandas as pd
@@ -201,3 +202,32 @@ class TestRQ4:
         fig, _ = rq4_quality_tradeoff(df_const)   # must not raise
         assert isinstance(fig, Figure)
         plt.close(fig)
+
+
+class TestEndToEnd:
+    def test_runs_on_synthetic_data(self, tmp_path):
+        """Full pipeline: write synthetic JSON → run script → check outputs."""
+        records = make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=4)
+        input_file = tmp_path / 'results.json'
+        input_file.write_text(json.dumps(records))
+
+        result = subprocess.run(
+            [sys.executable, 'experiments/analysis.py',
+             '--input', str(input_file),
+             '--output-dir', str(tmp_path)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        # Check all expected outputs exist
+        assert (tmp_path / 'stats_summary.csv').exists()
+        figures_dir = tmp_path / 'figures'
+        assert figures_dir.is_dir()
+        expected_figs = [
+            'fig1_strategy_heatmap.png',
+            'fig2_model_comparison.png',
+            'fig3_quality_efficiency_scatter.png',
+            'fig4_greenpes_distribution.png',
+        ]
+        for fname in expected_figs:
+            assert (figures_dir / fname).exists(), f"Missing: {fname}"

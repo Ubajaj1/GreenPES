@@ -405,17 +405,65 @@ def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 # ── Output helpers ────────────────────────────────────────────────────────────
 
 def save_stats_csv(all_stats: list[dict], output_dir: str) -> None:
-    pass  # Task 7
+    """Write all collected stats rows to output_dir/stats_summary.csv."""
+    path = Path(output_dir) / 'stats_summary.csv'
+    pd.DataFrame(all_stats).to_csv(path, index=False)
+    print(f"\nStats saved → {path}")
 
 
 def save_figures(figs: list[tuple[str, Figure]], output_dir: str) -> None:
-    pass  # Task 7
+    """Save all figures as 300 DPI PNGs to output_dir/figures/."""
+    figures_dir = Path(output_dir) / 'figures'
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    for fname, fig in figs:
+        out = figures_dir / fname
+        fig.savefig(out, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Figure saved → {out}")
 
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 def main() -> None:
-    pass  # Task 7
+    parser = argparse.ArgumentParser(
+        description='GreenPES analysis — RQ1–RQ4 stats + 4 figures',
+    )
+    parser.add_argument(
+        '--input', default='results/benchmark_results.json',
+        help='Path to benchmark_results.json (default: results/benchmark_results.json)',
+    )
+    parser.add_argument(
+        '--output-dir', default='results/',
+        help='Directory for stats CSV and figures/ subfolder (default: results/)',
+    )
+    args = parser.parse_args()
+
+    print(f"Loading results from: {args.input}")
+    df = load_and_clean(args.input)
+
+    all_stats: list[dict] = []
+    figures: list[tuple[str, Figure]] = []
+
+    fig1, s1 = rq1_strategy_effect(df)
+    figures.append(('fig1_strategy_heatmap.png', fig1))
+    all_stats.extend(s1)
+
+    fig2, s2 = rq2_token_efficiency(df)
+    figures.append(('fig2_model_comparison.png', fig2))
+    all_stats.extend(s2)
+
+    fig3, s3 = rq3_model_comparison(df)
+    figures.append(('fig3_quality_efficiency_scatter.png', fig3))
+    all_stats.extend(s3)
+
+    fig4, s4 = rq4_quality_tradeoff(df)
+    figures.append(('fig4_greenpes_distribution.png', fig4))
+    all_stats.extend(s4)
+
+    save_stats_csv(all_stats, args.output_dir)
+    save_figures(figures, args.output_dir)
+
+    print("\nDone.")
 
 
 if __name__ == '__main__':
