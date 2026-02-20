@@ -302,7 +302,93 @@ def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
 
 def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
-    raise NotImplementedError("Task 6")
+    """
+    RQ4: Is there a quality–efficiency tradeoff across strategies?
+
+    - Pearson r between total_tokens and quality (all records)
+    - Scatter: one point per (strategy, task) mean
+    - Pareto-efficient points annotated
+    - Figure: quality vs tokens scatter
+    """
+    print("\n── RQ4: Quality–efficiency tradeoff ──")
+
+    # Pearson r on all records
+    r, p = pearsonr(df['total_tokens'], df['quality'])
+    print(f"  Pearson r (tokens vs quality): r={r:.3f}, p={p:.4f}")
+
+    stats: list[dict] = [{
+        'rq': 'RQ4',
+        'test': 'Pearson r',
+        'statistic': round(float(r), 4),
+        'p_value': round(float(p), 4),
+        'effect_size': None,
+        'effect_metric': None,
+        'notes': 'total_tokens vs quality, all records',
+    }]
+
+    # Aggregate to (strategy, task) level for scatter
+    agg = (
+        df.groupby(['strategy', 'task'])
+        .agg(mean_tokens=('total_tokens', 'mean'),
+             mean_quality=('quality', 'mean'))
+        .reset_index()
+    )
+
+    # Pareto frontier: for each token budget, highest quality
+    agg_sorted = agg.sort_values('mean_tokens')  # type: ignore[call-overload]
+    pareto: list[dict] = []
+    best_q = -1.0
+    for _, row in agg_sorted.iterrows():
+        q = float(row['mean_quality'])   # type: ignore[arg-type]
+        if q > best_q:
+            best_q = q
+            pareto.append({
+                'strategy': str(row['strategy']),   # type: ignore[arg-type]
+                'task': str(row['task']),            # type: ignore[arg-type]
+                'mean_tokens': float(row['mean_tokens']),  # type: ignore[arg-type]
+                'mean_quality': q,
+            })
+
+    # Figure 4: scatter
+    strategy_colors = {s: c for s, c in zip(
+        STRATEGIES, sns.color_palette('tab10', len(STRATEGIES))
+    )}
+    task_markers = {'qa': 'o', 'summarization': 's',
+                    'classification': '^', 'instruction_following': 'D'}
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for _, row in agg.iterrows():
+        color = strategy_colors.get(str(row['strategy']), 'grey')   # type: ignore[arg-type]
+        marker = task_markers.get(str(row['task']), 'o')             # type: ignore[arg-type]
+        ax.scatter(float(row['mean_tokens']), float(row['mean_quality']),  # type: ignore[arg-type]
+                   color=color, marker=marker, s=80, zorder=3)
+
+    # Pareto frontier line
+    if len(pareto) > 1:
+        px = [pt['mean_tokens'] for pt in pareto]
+        py = [pt['mean_quality'] for pt in pareto]
+        ax.plot(px, py, 'k--', linewidth=1, label='Pareto frontier', zorder=2)
+        for pt in pareto:
+            ax.annotate(f"{pt['strategy']}\n({pt['task']})",
+                        (pt['mean_tokens'], pt['mean_quality']),
+                        textcoords='offset points', xytext=(5, 5), fontsize=7)
+
+    # Legend for strategies (color)
+    for strategy, color in strategy_colors.items():
+        if strategy in agg['strategy'].values:
+            ax.scatter([], [], color=color, label=strategy, s=60)
+    # Legend for tasks (marker)
+    for task, marker in task_markers.items():
+        if task in agg['task'].values:
+            ax.scatter([], [], color='grey', marker=marker, label=task, s=60)
+
+    ax.set_xlabel('Mean Total Tokens')
+    ax.set_ylabel('Mean Quality Score')
+    ax.set_title(f'Figure 4: Quality vs Token Cost (r={r:.2f})', fontsize=13)
+    ax.legend(fontsize=8, bbox_to_anchor=(1.01, 1), loc='upper left')
+    fig.tight_layout()
+
+    return fig, stats
 
 
 # ── Output helpers ────────────────────────────────────────────────────────────

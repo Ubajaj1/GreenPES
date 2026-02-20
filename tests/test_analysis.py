@@ -9,7 +9,7 @@ import pandas as pd
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect, rq2_token_efficiency, rq3_model_comparison
+from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect, rq2_token_efficiency, rq3_model_comparison, rq4_quality_tradeoff
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
@@ -158,4 +158,26 @@ class TestRQ3:
         for key in ('rq', 'test', 'statistic', 'p_value', 'effect_size', 'effect_metric', 'notes'):
             assert key in row
         assert row['effect_metric'] == 'std'
+        plt.close('all')
+
+
+class TestRQ4:
+    def setup_method(self):
+        records = make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=4)
+        path = write_json(records)
+        self.df = load_and_clean(path)
+
+    def test_returns_figure_and_stats(self):
+        fig, stats = rq4_quality_tradeoff(self.df)
+        assert isinstance(fig, Figure)
+        assert isinstance(stats, list)
+        assert len(stats) > 0
+        plt.close(fig)
+
+    def test_stats_contain_pearson_r(self):
+        _, stats = rq4_quality_tradeoff(self.df)
+        pearson_rows = [s for s in stats if s['test'] == 'Pearson r']
+        assert len(pearson_rows) == 1
+        r = pearson_rows[0]['statistic']
+        assert -1.0 <= r <= 1.0
         plt.close('all')
