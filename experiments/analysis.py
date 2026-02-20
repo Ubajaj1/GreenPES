@@ -95,7 +95,7 @@ def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     print("\n── RQ1: Strategy effect on GreenPES ──")
 
     strategies = df['strategy'].unique()
-    groups = [df[df['strategy'] == s]['greenpes'].values for s in strategies]
+    groups = [df[df['strategy'] == s]['greenpes'].to_numpy() for s in strategies]  # type: ignore[union-attr]
 
     # One-way ANOVA
     f_stat, p_val = f_oneway(*groups)
@@ -140,7 +140,7 @@ def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
             print(f"    {sig} {s1} vs {s2}: p={p:.4f}")
 
     # Figure 1: heatmap of mean GreenPES by strategy × task
-    pivot = df.groupby(['strategy', 'task'])['greenpes'].mean().unstack()
+    pivot: pd.DataFrame = df.groupby(['strategy', 'task'])['greenpes'].mean().unstack()  # type: ignore[assignment]
     # Ensure consistent ordering
     present_strategies = [s for s in STRATEGIES if s in pivot.index]
     present_tasks = [t for t in TASKS if t in pivot.columns]

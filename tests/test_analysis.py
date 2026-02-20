@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
 
 def make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=2) -> list[dict]:
@@ -81,7 +82,7 @@ class TestRQ1:
 
     def test_returns_figure_and_stats(self):
         fig, stats = rq1_strategy_effect(self.df)
-        assert isinstance(fig, plt.Figure)
+        assert isinstance(fig, Figure)
         assert isinstance(stats, list)
         assert len(stats) > 0
         plt.close(fig)
