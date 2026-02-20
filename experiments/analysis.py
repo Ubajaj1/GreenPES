@@ -170,7 +170,75 @@ def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
 
 
 def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
-    pass  # Task 4
+    """
+    RQ2: Which strategy is most token-efficient per task?
+
+    Groups by (task, strategy), reports mean GreenPES and mean tokens.
+    Figure: grouped bar chart — tasks × strategies, y = mean GreenPES.
+    """
+    print("\n── RQ2: Token efficiency by strategy × task ──")
+
+    agg = (
+        df.groupby(['task', 'strategy'])
+        .agg(mean_greenpes=('greenpes', 'mean'),
+             std_greenpes=('greenpes', 'std'),
+             mean_tokens=('total_tokens', 'mean'))
+        .reset_index()
+    )
+
+    stats = []
+    for task in df['task'].unique():
+        sub = agg[agg['task'] == task].sort_values('mean_greenpes', ascending=False)
+        winner = sub.iloc[0]
+        print(f"  {task}: best strategy = {winner['strategy']} "
+              f"(GreenPES={winner['mean_greenpes']:.2f}, tokens={winner['mean_tokens']:.0f})")
+        stats.append({
+            'rq': 'RQ2',
+            'test': 'winner',
+            'statistic': round(float(winner['mean_greenpes']), 4),
+            'p_value': None,
+            'effect_size': None,
+            'effect_metric': None,
+            'notes': f"task={task}, strategy={winner['strategy']}, "
+                     f"mean_tokens={round(float(winner['mean_tokens']), 1)}",
+        })
+        for _, row in sub.iterrows():
+            stats.append({
+                'rq': 'RQ2',
+                'test': 'mean_greenpes',
+                'statistic': round(float(row['mean_greenpes']), 4),
+                'p_value': None,
+                'effect_size': None,
+                'effect_metric': None,
+                'notes': f"task={task}, strategy={row['strategy']}, "
+                         f"mean_tokens={round(float(row['mean_tokens']), 1)}",
+            })
+
+    # Figure 2: grouped bar chart
+    present_tasks = [t for t in TASKS if t in agg['task'].values]
+    present_strategies = [s for s in STRATEGIES if s in agg['strategy'].values]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = range(len(present_tasks))
+    bar_width = 0.15
+    for i, strategy in enumerate(present_strategies):
+        sub = agg[agg['strategy'] == strategy].set_index('task')
+        heights = [float(sub.loc[t, 'mean_greenpes']) if t in sub.index else 0.0
+                   for t in present_tasks]
+        errs = [float(sub.loc[t, 'std_greenpes']) if t in sub.index else 0.0
+                for t in present_tasks]
+        offset = (i - len(present_strategies) / 2) * bar_width + bar_width / 2
+        ax.bar([xi + offset for xi in x], heights, bar_width,
+               label=strategy, yerr=errs, capsize=3)
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(present_tasks)
+    ax.set_ylabel('Mean GreenPES')
+    ax.set_title('Figure 2: GreenPES by Strategy per Task', fontsize=13)
+    ax.legend(title='Strategy', bbox_to_anchor=(1.01, 1), loc='upper left')
+    fig.tight_layout()
+
+    return fig, stats
 
 
 def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:

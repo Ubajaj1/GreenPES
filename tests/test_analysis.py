@@ -9,7 +9,7 @@ import pandas as pd
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect
+from experiments.analysis import load_and_clean, REQUIRED_COLS, rq1_strategy_effect, rq2_token_efficiency
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
@@ -99,4 +99,30 @@ class TestRQ1:
     def test_stats_rq_label(self):
         _, stats = rq1_strategy_effect(self.df)
         assert all(s['rq'] == 'RQ1' for s in stats)
+        plt.close('all')
+
+
+class TestRQ2:
+    def setup_method(self):
+        records = make_synthetic_results(n_models=2, n_tasks=2, n_strategies=2, n_examples=4)
+        path = write_json(records)
+        self.df = load_and_clean(path)
+
+    def test_returns_figure_and_stats(self):
+        fig, stats = rq2_token_efficiency(self.df)
+        assert isinstance(fig, Figure)
+        assert isinstance(stats, list)
+        assert len(stats) > 0
+        plt.close(fig)
+
+    def test_stats_rq_label(self):
+        _, stats = rq2_token_efficiency(self.df)
+        assert all(s['rq'] == 'RQ2' for s in stats)
+        plt.close('all')
+
+    def test_one_winner_per_task(self):
+        _, stats = rq2_token_efficiency(self.df)
+        winners = [s for s in stats if s.get('test') == 'winner']
+        tasks = self.df['task'].unique()
+        assert len(winners) == len(tasks)
         plt.close('all')
