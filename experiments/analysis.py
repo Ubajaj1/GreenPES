@@ -23,6 +23,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')  # non-interactive backend for saving files
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import pandas as pd
 import seaborn as sns
 from scipy.stats import f_oneway, pearsonr, tukey_hsd
@@ -56,19 +57,19 @@ def load_and_clean(path: str) -> pd.DataFrame:
 
 # ── RQ functions ──────────────────────────────────────────────────────────────
 
-def rq1_strategy_effect(df: pd.DataFrame) -> tuple[plt.Figure, list[dict]]:
+def rq1_strategy_effect(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     pass  # Task 3
 
 
-def rq2_token_efficiency(df: pd.DataFrame) -> tuple[plt.Figure, list[dict]]:
+def rq2_token_efficiency(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     pass  # Task 4
 
 
-def rq3_model_comparison(df: pd.DataFrame) -> tuple[plt.Figure, list[dict]]:
+def rq3_model_comparison(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     pass  # Task 5
 
 
-def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[plt.Figure, list[dict]]:
+def rq4_quality_tradeoff(df: pd.DataFrame) -> tuple[Figure, list[dict]]:
     pass  # Task 6
 
 
@@ -78,7 +79,7 @@ def save_stats_csv(all_stats: list[dict], output_dir: str) -> None:
     pass  # Task 7
 
 
-def save_figures(figs: list[tuple[str, plt.Figure]], output_dir: str) -> None:
+def save_figures(figs: list[tuple[str, Figure]], output_dir: str) -> None:
     pass  # Task 7
 
 
