@@ -72,7 +72,17 @@ class GeminiProvider(LLMProvider):
 
 
 class GroqProvider(LLMProvider):
-    """Groq API wrapper for open-source models (free tier: 30 RPM)."""
+    """Groq API wrapper for open-source models (free tier: 30 RPM).
+
+    For Qwen3 models, thinking/reasoning is explicitly disabled via
+    reasoning_effort='none' so only the final answer is returned and counted
+    in output tokens — ensuring a fair comparison with non-reasoning models.
+    """
+
+    # Models that default to thinking mode and need it explicitly disabled.
+    # Verified: qwen/qwen3-32b outputs <think> blocks by default on Groq,
+    # inflating output tokens ~5x and truncating the actual answer.
+    _REASONING_MODELS = {"qwen/qwen3-32b"}
 
     def __init__(self, api_key: str, model: str = "llama-3.1-8b-instant"):
         try:
@@ -82,15 +92,20 @@ class GroqProvider(LLMProvider):
 
         self.client = Groq(api_key=api_key)
         self.model = model
+        self._disable_reasoning = model in self._REASONING_MODELS
 
     def generate(self, prompt: str, max_tokens: int = 500) -> LLMResponse:
         start = time.time()
 
-        response = self.client.chat.completions.create(
+        kwargs: dict = dict(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
         )
+        if self._disable_reasoning:
+            kwargs["reasoning_effort"] = "none"
+
+        response = self.client.chat.completions.create(**kwargs)
 
         latency = (time.time() - start) * 1000
 
