@@ -44,15 +44,6 @@
 
 **Test suite:** `tests/test_evaluators.py` — 36 tests, all passing.
 
-**Evaluator details:**
-
-| Evaluator | Method | Notes |
-|-----------|--------|-------|
-| `QAEvaluator` | Word-overlap (ROUGE-1 recall) | Negation check: "not [answer]" → 0.0; punctuation-stripped |
-| `SummarizationEvaluator` | Length + coherence + ROUGE-1 | ROUGE-1 active when `ground_truth` provided (weight 50%) |
-| `ClassificationEvaluator` | Label containment (case-insensitive) | Negation check; no-ground-truth → 0.7 heuristic |
-| `InstructionFollowingEvaluator` | Constraint fraction | Constraints: `bullet_points`, `numbered_list`, `single_word`; partial credit |
-
 ---
 
 ## Phase 3: Benchmark Data ✅ COMPLETE
@@ -63,76 +54,21 @@
 - [x] **Bonus:** All 20 summarization examples now have `ground_truth` reference summaries (activates ROUGE-1)
 - [x] **Bonus:** All 20 QA examples now have `ground_truth` strings
 
-**Current counts:**
-
-| Task | Examples | ground_truth | Notes |
-|------|----------|-------------|-------|
-| `qa` | 20 | ✅ all | Factual + tech questions people actually ask LLMs |
-| `summarization` | 20 | ✅ all | Real-world topic passages; ROUGE-1 now active |
-| `classification` | 20 | ✅ all | Authentic review text; 7 pos / 7 neg / 6 neutral |
-| `instruction_following` | 20 | N/A | 7 bullet_points / 7 numbered_list / 6 single_word |
-
-**`TASK_CONFIGS`** has 3 few-shot examples per task for the `few_shot` strategy.
-
 ---
 
 ## Phase 4: Benchmark Runner ✅ COMPLETE
 
-- [x] Task 4.1: `experiments/benchmark.py` — `MODEL_CONFIGS` for all 7 models, `get_provider()` factory, full argparse, constraints plumbing for `instruction_following`
-
-**Key additions:**
-- `MODEL_CONFIGS` — single dict mapping model name → `{provider_cls, model, env_key}`
-- `get_provider(name)` — reads env var, instantiates provider, raises clear error if key missing
-- Constraints plumbing — `instruction_following` builds `InstructionFollowingEvaluator(constraints=example['constraints'])` per example, passes via `scorer.score_prompt(evaluator=...)`
-- `TASKS` expanded to all 4
-- `print_summary()` — breakdown by model, task, and strategy
-- Graceful skip for models with missing API keys (warns, continues)
-- Validated with `--mock`: 20/20 runs successful across all 4 tasks
-
-**CLI usage:**
-```bash
-python experiments/benchmark.py                          # all 7 models, all 4 tasks, 4 examples → 560 runs
-python experiments/benchmark.py --models gpt-4o-mini    # single model
-python experiments/benchmark.py --tasks qa,classification
-python experiments/benchmark.py --examples 20           # all examples per task
-python experiments/benchmark.py --quick                 # 1 example × zero_shot (pipeline check)
-python experiments/benchmark.py --mock                  # no API calls (CI/testing)
-python experiments/benchmark.py --delay 2.0             # slower for Groq free tier (30 RPM)
-```
+- [x] Task 4.1: `experiments/benchmark.py` with all 7 models, full argparse, incremental saving + `--resume`
 
 ---
 
 ## Phase 5: Analysis Scripts ✅ COMPLETE
 
-- [x] Task 5.1: `experiments/analysis.py` — RQ1–RQ4 statistical analysis + 4 figures + `stats_summary.csv`
+- [x] Task 5.1: `experiments/analysis.py` — RQ1–RQ8 statistical analysis + 10 figures + `stats_summary.csv`
+- [x] Task 5.2: `experiments/optimizer_benchmark.py` — optimizer vs baseline compressor benchmark, with incremental saving + `--resume`
+- [x] Task 5.3: `greenprompt/optimizer.py` — `PromptOptimizer`, `BaselineCompressor`, `OptimizationResult`
 
-**Test suite:** `tests/test_analysis.py` — 20 tests, all passing.
-
-**Benchmark run:** 480 successful runs (6 models × 4 tasks × 5 strategies × 4 examples; gemini-flash skipped — GOOGLE_API_KEY missing at run time)
-
-**Key findings:**
-
-| RQ | Result |
-|----|--------|
-| RQ1 | Strategy significantly affects GreenPES: F=16.15, p<0.0001, η²=0.12. `concise` ≈ `zero_shot` (best); `cot` and `few_shot` significantly worse. |
-| RQ2 | `concise` best on 3/4 tasks; `zero_shot` best on QA (mean 14.22 GreenPES, 104 tokens) |
-| RQ3 | gpt-4o-mini (9.48) > kimi-k2 (7.93) > llama-3.3-70b (5.67) > claude-haiku (5.43) > llama-3.1-8b (4.57) > qwen3-32b (1.57) |
-| RQ4 | Pearson r = -0.316 (p<0.0001) — modest negative correlation between tokens and quality |
-
-**Outputs:**
-- `results/benchmark_results.json` — 480 experiment records
-- `results/stats_summary.csv` — all statistical test rows (RQ1–RQ4)
-- `results/figures/fig1_strategy_heatmap.png`
-- `results/figures/fig2_model_comparison.png`
-- `results/figures/fig3_quality_efficiency_scatter.png`
-- `results/figures/fig4_greenpes_distribution.png`
-
-**CLI usage:**
-```bash
-python experiments/analysis.py                                          # default: results/benchmark_results.json
-python experiments/analysis.py --input path/to/results.json
-python experiments/analysis.py --output-dir custom/output/dir/
-```
+**Test suite:** 136 tests passing, 2 skipped.
 
 ---
 
@@ -143,12 +79,89 @@ python experiments/analysis.py --output-dir custom/output/dir/
 
 ---
 
+## Benchmark Runs
+
+### Run 1: Main Benchmark (LLM Judge) — `results/benchmark_judge_full.json`
+- **4032 successful** / 4517 total records (485 errors)
+- 7 models × 4 tasks × 5 strategies × 30 examples per task
+- All records include `judge_scores` (4-dimension LLM judge: correctness, completeness, reasoning, conciseness)
+- gemini-flash: 439/600 (quota exhausted); llama-3.3-70b: 593/600 (7 rate-limit errors)
+
+| Model | Successful |
+|-------|-----------|
+| claude-haiku | 600/600 |
+| gpt-4o-mini | 600/600 |
+| kimi-k2 | 600/600 |
+| llama-3.1-8b | 600/600 |
+| qwen3-32b | 600/600 |
+| llama-3.3-70b | 593/600 |
+| gemini-flash | 439/600 |
+
+### Run 2: Optimizer Benchmark — `results/optimizer_results.json`
+- **Status:** 🔄 IN PROGRESS (started 2026-02-26 ~11:01 PM)
+- 6 models (excl. gemini-flash) × 4 tasks × 3 verbose_strategies × 10 examples × 5 methods
+- Target: ~3600 records
+- Command: `python experiments/optimizer_benchmark.py --models llama-3.1-8b,llama-3.3-70b,qwen3-32b,kimi-k2,gpt-4o-mini,claude-haiku --examples 10 --delay 2.0 --output results/optimizer_results.json`
+- To resume if interrupted: add `--resume`
+
+---
+
+## Analysis Results — `results/stats_summary.csv` + `results/figures/`
+
+Run on `benchmark_judge_full.json` (4032 records). Figures saved Feb 26 2026.
+
+### RQ1: Strategy Effect on GreenPES
+- ANOVA: F=105.98, p<0.0001, η²=0.095
+- `concise` ≈ `zero_shot` (best, no significant difference p=0.80)
+- `cot` and `few_shot` significantly worse than `concise` and `zero_shot`
+
+### RQ2: Token Efficiency by Task
+- QA: `zero_shot` best (GreenPES=11.49, tokens=121)
+- Summarization, Classification, Instruction-following: `concise` best
+
+### RQ3: Model Comparison (mean GreenPES)
+- gemini-flash (8.36) > gpt-4o-mini (6.94) > kimi-k2 (6.69) > claude-haiku (4.71) > llama-3.3-70b (4.64) > llama-3.1-8b (4.11) > qwen3-32b (1.79)
+
+### RQ4: Quality-Efficiency Tradeoff
+- Pearson r=0.169, p<0.0001 (positive correlation: more tokens → slightly better quality)
+
+### RQ5: Strategy Transfer
+- Interaction (model×strategy): F=1.865, p=0.0064
+- Most models prefer `cot` for raw quality (but `cot` is expensive in tokens)
+- `cot` is best for: claude-haiku, gemini-flash, gpt-4o-mini, kimi-k2
+- `few_shot` best for llama-3.1-8b; `zero_shot_verbose` best for llama-3.3-70b; `concise` best for qwen3-32b
+
+### RQ6: Model Strategy Agreement
+- Universality index = 0.000 (no model pair has Kendall tau > 0.8)
+- Models disagree significantly on optimal strategy
+
+### RQ7: Scaling Laws
+- 28 (model, task) pairs fitted; most best fit: logarithmic
+- Saturation points: QA ~50-280 tokens; Summarization ~180-420; Classification ~80-290; Instruction-following ~80-280
+
+### RQ8: Optimizer Effectiveness
+- ⏳ Pending optimizer_results.json completion
+
+---
+
+**Figures generated:**
+- `fig1_strategy_heatmap.png` — RQ1: GreenPES heatmap by task × strategy
+- `fig2_token_efficiency.png` — RQ2: token efficiency by strategy × task
+- `fig3_model_comparison.png` — RQ3: mean GreenPES by model (ordered by size)
+- `fig4_quality_efficiency_scatter.png` — RQ4: quality vs token cost scatter
+- `fig5_transfer_heatmap.png` — RQ5: 7×7 strategy transfer matrix
+- `fig6_interaction_plot.png` — RQ6: model×strategy interaction lines
+- `fig7_scaling_curves.png` — RQ7: scaling curves (4 subplots, one per task)
+- `fig8_saturation_points.png` — RQ7: saturation token count per model×task
+
+---
+
 ## API Keys Status
 
 | Provider | Key Set | Models Active |
 |----------|---------|---------------|
 | Groq | ✅ | llama-3.1-8b, llama-3.3-70b, qwen3-32b, kimi-k2 |
-| Gemini | ✅ | gemini-2.0-flash only (2.5-pro needs billing) |
+| Gemini | ✅ (`GEMINI_API_KEY`) | gemini-2.0-flash (daily quota exhausts with heavy use) |
 | OpenAI | ✅ | gpt-4o-mini |
 | Anthropic | ✅ | claude-haiku-4-5-20251001 |
 | Together | ❌ Not used | Dropped from plan |
@@ -166,10 +179,16 @@ python experiments/analysis.py --output-dir custom/output/dir/
 
 ## Next Steps (in order)
 
-1. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 submission (deadline: Mar 31) **← START HERE next session**
-2. *(Optional)* Re-run benchmark with gemini-flash once GOOGLE_API_KEY is set: `python experiments/benchmark.py --models gemini-2.0-flash --delay 1.0`
-3. *(Optional)* Run with all 20 examples per task: `python experiments/benchmark.py --examples 20`
+1. **Wait for optimizer benchmark** to finish (~2h run, started 2026-02-26 11PM)
+   - Check progress: `tail -30 /private/tmp/claude-501/-Users-utkarshbajaj-Documents-05-Code-Projects-GreenPES/tasks/b94ce2e.output`
+   - Or check results: `python3 -c "import json; d=json.load(open('results/optimizer_results.json')); print(len(d))"`
+   - If interrupted: `python experiments/optimizer_benchmark.py --models llama-3.1-8b,llama-3.3-70b,qwen3-32b,kimi-k2,gpt-4o-mini,claude-haiku --examples 10 --delay 2.0 --resume`
+2. **Run RQ8 analysis** once optimizer data is ready:
+   ```bash
+   python experiments/analysis.py --rqs 8 --input results/benchmark_judge_full.json --optimizer-input results/optimizer_results.json --output-dir results/
+   ```
+3. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 (deadline: Mar 31)
 
 ---
 
-*Last updated: 2026-02-19*
+*Last updated: 2026-02-26*

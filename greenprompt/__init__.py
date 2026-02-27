@@ -7,6 +7,7 @@ A framework for measuring and optimizing LLM prompt efficiency.
 from .metrics import GreenPESCalculator, GreenPESScore, PromptResult
 from .scorer import GreenPromptScorer, PromptAnalysis
 from .evaluators import QualityEvaluator, QAEvaluator, SummarizationEvaluator, get_evaluator
+from .optimizer import PromptOptimizer, BaselineCompressor, OptimizationResult
 from .llm import (
     LLMProvider, GeminiProvider, GroqProvider, OpenAIProvider,
     AnthropicProvider, TogetherProvider, MockProvider, LLMResponse
@@ -27,6 +28,10 @@ __all__ = [
     "QAEvaluator",
     "SummarizationEvaluator",
     "get_evaluator",
+    # Optimizer
+    "PromptOptimizer",
+    "BaselineCompressor",
+    "OptimizationResult",
     # LLM Providers
     "LLMProvider",
     "GeminiProvider",

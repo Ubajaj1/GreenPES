@@ -17,6 +17,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / '.env')
@@ -24,7 +25,12 @@ load_dotenv(Path(__file__).parent.parent / '.env')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from greenprompt import GreenPromptScorer
-from greenprompt.evaluators import InstructionFollowingEvaluator
+from greenprompt.evaluators import (
+    InstructionFollowingEvaluator,
+    LLMJudgeEvaluator,
+    get_evaluator,
+    get_judge_evaluator,
+)
 from greenprompt.llm import (
     LLMProvider, OpenAIProvider, AnthropicProvider,
     GeminiProvider, GroqProvider, MockProvider,
@@ -72,7 +78,7 @@ MODEL_CONFIGS: dict[str, dict] = {
     'gemini-flash': {
         'provider_cls': GeminiProvider,
         'model':        'gemini-2.0-flash',
-        'env_key':      'GOOGLE_API_KEY',
+        'env_key':      'GEMINI_API_KEY',
     },
 }
 
@@ -104,6 +110,61 @@ def get_provider(model_name: str) -> tuple[str, LLMProvider]:
 
 # ── Core benchmark loop ───────────────────────────────────────────────────────
 
+def _build_evaluator(
+    task: str,
+    example: dict,
+    evaluator_type: str,
+    judge_provider: Optional[LLMProvider],
+) -> tuple:
+    """
+    Build the appropriate evaluator for a single example.
+
+    Returns (evaluator, judge_scores_placeholder) where judge_scores_placeholder
+    is None for heuristic mode.
+    """
+    if evaluator_type == 'llm_judge' and judge_provider is not None:
+        ev = LLMJudgeEvaluator(judge_provider=judge_provider, task_type=task)
+        # Wrap to capture per-dimension scores
+        return ev, True
+    elif task == 'instruction_following':
+        return InstructionFollowingEvaluator(
+            constraints=example.get('constraints', [])
+        ), False
+    else:
+        return None, False  # scorer calls get_evaluator(task)
+
+
+def _load_existing(output_path: str) -> tuple[list[dict], set[tuple]]:
+    """
+    Load any existing results from output_path.
+
+    Returns (results_list, completed_keys) where completed_keys is a set of
+    (model, task, strategy, example_id) tuples already finished.
+    """
+    if not os.path.exists(output_path):
+        return [], set()
+    try:
+        with open(output_path) as f:
+            existing = json.load(f)
+        completed = {
+            (r['model'], r['task'], r['strategy'], r['example_id'])
+            for r in existing
+            if 'model' in r and 'error' not in r
+        }
+        return existing, completed
+    except Exception:
+        return [], set()
+
+
+def _save_incremental(results: list[dict], output_path: str) -> None:
+    """Atomically overwrite output_path with current results list."""
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    tmp = output_path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(results, f, indent=2)
+    os.replace(tmp, output_path)
+
+
 def run_benchmark(
     providers: list[tuple[str, LLMProvider]],
     tasks: list[str] = TASKS,
@@ -112,6 +173,10 @@ def run_benchmark(
     output_path: str = 'results/benchmark_results.json',
     delay_between_calls: float = 1.0,
     verbose: bool = True,
+    evaluator_type: str = 'heuristic',
+    judge_provider: 'Optional[LLMProvider]' = None,
+    difficulty_filter: str = 'all',
+    resume: bool = False,
 ) -> list[dict]:
     """
     Run the full benchmark across models × tasks × strategies × examples.
@@ -120,44 +185,61 @@ def run_benchmark(
         providers:            List of (name, provider) tuples.
         tasks:                Task types to run (default: all 4).
         strategies:           Prompting strategies to test (default: all 5).
-        examples_per_task:    How many examples per task to use (default: 4 → 560 total).
-        output_path:          JSON file for results.
+        examples_per_task:    How many examples per task to use (default: 4).
+        output_path:          JSON file for results (saved after every run).
         delay_between_calls:  Seconds between API calls for rate limiting.
         verbose:              Print per-run progress.
+        evaluator_type:       'heuristic' or 'llm_judge'.
+        judge_provider:       LLMProvider to use as judge (required if evaluator_type='llm_judge').
+        difficulty_filter:    'all', 'easy', or 'hard' — filter examples by difficulty field.
+        resume:               If True, skip already-completed (model, task, strategy, example_id)
+                              combinations found in output_path.
 
     Returns:
         List of result dicts (one per LLM call).
     """
-    results = []
-    total_runs = len(providers) * len(tasks) * len(strategies) * examples_per_task
-    current_run = 0
+    if resume:
+        results, completed = _load_existing(output_path)
+        if completed:
+            print(f"Resuming: {len(completed)} experiments already done, "
+                  f"{len(results)} records loaded from {output_path}")
+    else:
+        results, completed = [], set()
 
     for provider_name, provider in providers:
         scorer = GreenPromptScorer(provider=provider)
 
         for task in tasks:
-            examples = BENCHMARK_EXAMPLES.get(task, [])[:examples_per_task]
+            all_examples = BENCHMARK_EXAMPLES.get(task, [])
+
+            # Apply difficulty filter
+            if difficulty_filter != 'all':
+                all_examples = [
+                    e for e in all_examples
+                    if e.get('difficulty', 'easy') == difficulty_filter
+                ]
+
+            examples = all_examples[:examples_per_task]
 
             for strategy in strategies:
                 for i, example in enumerate(examples):
-                    current_run += 1
+                    # Skip if already completed (resume mode)
+                    if (provider_name, task, strategy, i) in completed:
+                        if verbose:
+                            print(f"[{provider_name} | {task} | {strategy} | ex {i+1}] SKIP")
+                        continue
 
                     if verbose:
                         print(
-                            f"[{current_run}/{total_runs}] "
-                            f"{provider_name} | {task} | {strategy} | ex {i+1}"
+                            f"[{provider_name} | {task} | {strategy} | ex {i+1}]"
                         )
 
                     try:
                         prompt = generate_prompt(strategy, task, example)
 
-                        # instruction_following: build evaluator with per-example constraints
-                        if task == 'instruction_following':
-                            evaluator = InstructionFollowingEvaluator(
-                                constraints=example.get('constraints', [])
-                            )
-                        else:
-                            evaluator = None  # scorer calls get_evaluator(task)
+                        evaluator, _is_judge = _build_evaluator(
+                            task, example, evaluator_type, judge_provider
+                        )
 
                         analysis = scorer.score_prompt(
                             prompt=prompt,
@@ -167,11 +249,17 @@ def run_benchmark(
                             evaluator=evaluator,
                         )
 
+                        judge_scores = (
+                            evaluator.last_scores
+                            if hasattr(evaluator, 'last_scores')
+                            else None
+                        )
                         result = {
                             'model':           provider_name,
                             'task':            task,
                             'strategy':        strategy,
                             'example_id':      i,
+                            'difficulty':      example.get('difficulty', 'easy'),
                             'greenpes':        analysis.score.scaled_score,
                             'quality':         analysis.score.quality,
                             'input_tokens':    analysis.score.input_tokens,
@@ -186,6 +274,8 @@ def run_benchmark(
                             'response':        analysis.response,
                             'ground_truth':    example.get('ground_truth'),
                             'constraints':     example.get('constraints'),
+                            'evaluator_type':  evaluator_type,
+                            'judge_scores':    judge_scores,
                         }
                         results.append(result)
 
@@ -199,26 +289,26 @@ def run_benchmark(
                     except Exception as e:
                         print(f"    ERROR: {e}")
                         results.append({
-                            'model':     provider_name,
-                            'task':      task,
-                            'strategy':  strategy,
-                            'example_id': i,
-                            'error':     str(e),
-                            'timestamp': datetime.now().isoformat(),
+                            'model':          provider_name,
+                            'task':           task,
+                            'strategy':       strategy,
+                            'example_id':     i,
+                            'difficulty':     example.get('difficulty', 'easy'),
+                            'evaluator_type': evaluator_type,
+                            'error':          str(e),
+                            'timestamp':      datetime.now().isoformat(),
                         })
+
+                    # Save after every experiment so nothing is lost on interruption
+                    _save_incremental(results, output_path)
 
                     if delay_between_calls > 0:
                         time.sleep(delay_between_calls)
 
-    # Save results
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w') as f:
-        json.dump(results, f, indent=2)
-
     if verbose:
         successful = [r for r in results if 'error' not in r]
         print(f"\nResults saved to {output_path}")
-        print(f"Successful: {len(successful)}/{total_runs}")
+        print(f"Successful: {len(successful)}/{len(results)}")
 
     return results
 
@@ -303,11 +393,60 @@ if __name__ == '__main__':
         '--mock', action='store_true',
         help='Use MockProvider (no API calls, for testing pipeline)',
     )
+    parser.add_argument(
+        '--evaluator', default='heuristic', choices=['heuristic', 'llm_judge'],
+        help='Evaluator type: heuristic (default) or llm_judge (uses judge model for scoring)',
+    )
+    parser.add_argument(
+        '--judge-model', default='gpt-4o-mini',
+        help='Model to use as LLM judge when --evaluator llm_judge (default: gpt-4o-mini)',
+    )
+    parser.add_argument(
+        '--strategies', default='all', choices=['all', 'scaling'],
+        help='Strategy set: all=original 5 strategies, scaling=parameterized scaling variants',
+    )
+    parser.add_argument(
+        '--difficulty', default='all', choices=['all', 'easy', 'hard'],
+        help='Filter examples by difficulty: all (default), easy, or hard',
+    )
+    parser.add_argument(
+        '--resume', action='store_true',
+        help='Resume from existing output file, skipping already-completed experiments',
+    )
     args = parser.parse_args()
+
+    # Resolve strategies
+    if args.strategies == 'all':
+        active_strategies = STRATEGIES
+    else:
+        # 'scaling' strategies are handled by Task 4 (added later)
+        from experiments.prompting_strategies import SCALING_STRATEGIES  # type: ignore[attr-defined]
+        active_strategies = SCALING_STRATEGIES
+
+    # Resolve judge provider if llm_judge mode
+    judge_provider: Optional[LLMProvider] = None
+    if args.evaluator == 'llm_judge':
+        if args.mock:
+            # In mock mode, use a MockProvider that returns valid JSON scores
+            judge_provider = MockProvider(
+                response_text='{"correctness": 3, "completeness": 3, "reasoning": 3, "conciseness": 3}'
+            )
+            print("Judge model: mock (--mock flag set)")
+        else:
+            judge_model = args.judge_model
+            if judge_model in MODEL_CONFIGS:
+                _, judge_provider = get_provider(judge_model)
+            else:
+                openai_key = os.environ.get('OPENAI_API_KEY')
+                if not openai_key:
+                    print("Error: --evaluator llm_judge requires OPENAI_API_KEY for judge model.")
+                    sys.exit(1)
+                judge_provider = OpenAIProvider(api_key=openai_key, model=judge_model)
+            print(f"Judge model: {judge_model}")
 
     # Resolve models
     if args.mock:
-        providers = [('mock', MockProvider())]
+        providers: list[tuple[str, LLMProvider]] = [('mock', MockProvider())]
     elif args.models == 'all':
         providers = []
         missing = []
@@ -340,10 +479,12 @@ if __name__ == '__main__':
             print(f"Unknown task '{t}'. Valid tasks: {', '.join(TASKS)}")
             sys.exit(1)
 
-    print(f"Models:   {[p[0] for p in providers]}")
-    print(f"Tasks:    {tasks}")
-    print(f"Examples: {args.examples} per task")
-    total = len(providers) * len(tasks) * len(STRATEGIES) * args.examples
+    print(f"Models:    {[p[0] for p in providers]}")
+    print(f"Tasks:     {tasks}")
+    print(f"Examples:  {args.examples} per task")
+    print(f"Evaluator: {args.evaluator}")
+    print(f"Difficulty:{args.difficulty}")
+    total = len(providers) * len(tasks) * len(active_strategies) * args.examples
     print(f"Total experiments: {total}")
     print()
 
@@ -353,10 +494,14 @@ if __name__ == '__main__':
         results = run_benchmark(
             providers=providers,
             tasks=tasks,
-            strategies=STRATEGIES,
+            strategies=active_strategies,
             examples_per_task=args.examples,
             output_path=args.output,
             delay_between_calls=args.delay,
+            evaluator_type=args.evaluator,
+            judge_provider=judge_provider,
+            difficulty_filter=args.difficulty,
+            resume=args.resume,
         )
 
     print_summary(results)

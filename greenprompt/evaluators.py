@@ -4,9 +4,13 @@ Quality evaluators for GreenPES.
 Task-specific quality assessment for prompt responses.
 """
 
+import json
 import re
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from .llm import LLMProvider
 
 
 class QualityEvaluator(ABC):
@@ -185,3 +189,123 @@ def get_evaluator(task_type: str) -> QualityEvaluator:
         'instruction_following': InstructionFollowingEvaluator(),
     }
     return evaluators.get(task_type.lower(), QAEvaluator())
+
+
+class LLMJudgeEvaluator(QualityEvaluator):
+    """
+    LLM-as-judge evaluator using any LLMProvider (default: gpt-4o-mini).
+
+    Scores responses on 4 dimensions (1–5 each):
+      - correctness, completeness, reasoning, conciseness
+    Returns normalized mean (sum / 20) in [0, 1].
+    Retries once on JSON parse failure; falls back to heuristic evaluator.
+    """
+
+    _RUBRICS: dict[str, str] = {
+        'qa': (
+            "Focus heavily on Correctness (does the answer match the reference?). "
+            "Completeness checks if the answer is fully given. "
+            "Reasoning Quality assesses logical justification. "
+            "Conciseness penalizes unnecessary verbosity."
+        ),
+        'summarization': (
+            "Focus on Completeness (coverage of key points from the reference). "
+            "Correctness checks factual accuracy. "
+            "Conciseness rewards brevity over length. "
+            "Reasoning Quality assesses coherence and structure."
+        ),
+        'classification': (
+            "Focus on Correctness (does the classification match the reference label?). "
+            "Conciseness rewards direct labeling without padding. "
+            "Reasoning Quality assesses any justification given. "
+            "Completeness checks if the classification is unambiguous."
+        ),
+        'instruction_following': (
+            "Focus on Completeness (are all stated constraints satisfied?). "
+            "Correctness checks format and structural adherence. "
+            "Conciseness rewards appropriate brevity. "
+            "Reasoning Quality assesses overall response clarity."
+        ),
+    }
+
+    _JUDGE_PROMPT = """\
+You are an expert judge evaluating an AI assistant's response.
+
+Task type: {task_type}
+Evaluation guidance: {rubric}
+Reference answer (if available): {ground_truth}
+
+AI response to evaluate:
+{response}
+
+Rate the response on these 4 dimensions, each from 1 (very poor) to 5 (excellent):
+- correctness: Does the response accurately answer the task?
+- completeness: Is the response complete and thorough?
+- reasoning: Is the reasoning or logic sound and clear?
+- conciseness: Is the response appropriately concise?
+
+Respond ONLY with valid JSON in this exact format:
+{{"correctness": <1-5>, "completeness": <1-5>, "reasoning": <1-5>, "conciseness": <1-5>}}"""
+
+    def __init__(self, judge_provider: 'LLMProvider', task_type: str):
+        self.judge_provider = judge_provider
+        self.task_type = task_type
+        self._fallback: QualityEvaluator = get_evaluator(task_type)
+        self.last_scores: Optional[dict] = None  # set after each evaluate() call
+
+    def _parse_scores(self, text: str) -> Optional[dict]:
+        """Extract and validate JSON scores from judge response."""
+        match = re.search(r'\{[^}]+\}', text, re.DOTALL)
+        if not match:
+            return None
+        try:
+            scores = json.loads(match.group())
+        except json.JSONDecodeError:
+            return None
+        required = {'correctness', 'completeness', 'reasoning', 'conciseness'}
+        if not required.issubset(scores.keys()):
+            return None
+        for k in required:
+            v = scores[k]
+            if not isinstance(v, (int, float)) or not (1 <= v <= 5):
+                return None
+        return scores
+
+    def _call_judge(self, prompt: str) -> Optional[dict]:
+        """Call judge provider and parse scores. Returns None on any failure."""
+        try:
+            resp = self.judge_provider.generate(prompt, max_tokens=100)
+            return self._parse_scores(resp.text)
+        except Exception:
+            return None
+
+    def evaluate(self, response: str, ground_truth: Optional[str] = None) -> tuple[float, bool]:
+        response = response.strip()
+        if not response:
+            return 0.0, False
+
+        rubric = self._RUBRICS.get(self.task_type, self._RUBRICS['qa'])
+        prompt = self._JUDGE_PROMPT.format(
+            task_type=self.task_type,
+            rubric=rubric,
+            ground_truth=ground_truth if ground_truth else "Not provided",
+            response=response,
+        )
+
+        scores = self._call_judge(prompt)
+        if scores is None:
+            scores = self._call_judge(prompt)  # one retry
+
+        if scores is None:
+            self.last_scores = None
+            return self._fallback.evaluate(response, ground_truth)
+
+        self.last_scores = scores
+        total = sum(scores[k] for k in ('correctness', 'completeness', 'reasoning', 'conciseness'))
+        quality = total / 20.0
+        return quality, quality >= 0.5
+
+
+def get_judge_evaluator(task_type: str, judge_provider: 'LLMProvider') -> LLMJudgeEvaluator:
+    """Get an LLM judge evaluator for the given task type."""
+    return LLMJudgeEvaluator(judge_provider=judge_provider, task_type=task_type)

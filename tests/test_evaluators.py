@@ -5,8 +5,11 @@ from greenprompt.evaluators import (
     SummarizationEvaluator,
     ClassificationEvaluator,
     InstructionFollowingEvaluator,
+    LLMJudgeEvaluator,
     get_evaluator,
+    get_judge_evaluator,
 )
+from greenprompt.llm import MockProvider
 
 
 # ── QAEvaluator ───────────────────────────────────────────────────────────────
@@ -286,3 +289,104 @@ class TestGetEvaluator:
     def test_summarization_still_works(self):
         ev = get_evaluator("summarization")
         assert isinstance(ev, SummarizationEvaluator)
+
+
+# ── LLMJudgeEvaluator ─────────────────────────────────────────────────────────
+
+class TestLLMJudgeEvaluator:
+
+    def _judge(self, json_response: str, task_type: str = 'qa') -> LLMJudgeEvaluator:
+        """Helper: build a LLMJudgeEvaluator backed by a MockProvider."""
+        provider = MockProvider(response_text=json_response)
+        return LLMJudgeEvaluator(judge_provider=provider, task_type=task_type)
+
+    def test_valid_json_returns_float_in_range(self):
+        ev = self._judge('{"correctness": 4, "completeness": 3, "reasoning": 5, "conciseness": 2}')
+        quality, completed = ev.evaluate("Some response", ground_truth="Expected")
+        assert isinstance(quality, float)
+        assert 0.0 <= quality <= 1.0
+
+    def test_perfect_scores_return_1_0(self):
+        ev = self._judge('{"correctness": 5, "completeness": 5, "reasoning": 5, "conciseness": 5}')
+        quality, completed = ev.evaluate("Perfect answer.", ground_truth="Answer")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_minimum_scores_return_0_2(self):
+        """All 1s: sum=4, quality=4/20=0.2 → below 0.5 → not completed."""
+        ev = self._judge('{"correctness": 1, "completeness": 1, "reasoning": 1, "conciseness": 1}')
+        quality, completed = ev.evaluate("Bad answer.", ground_truth="Answer")
+        assert quality == pytest.approx(0.2)
+        assert completed is False
+
+    def test_quality_above_0_5_completed_true(self):
+        """sum=12 → quality=0.6 → completed."""
+        ev = self._judge('{"correctness": 3, "completeness": 3, "reasoning": 3, "conciseness": 3}')
+        quality, completed = ev.evaluate("Decent answer.", ground_truth="Answer")
+        assert quality == pytest.approx(0.6)
+        assert completed is True
+
+    def test_quality_below_0_5_completed_false(self):
+        """sum=8 → quality=0.4 → not completed."""
+        ev = self._judge('{"correctness": 2, "completeness": 2, "reasoning": 2, "conciseness": 2}')
+        quality, completed = ev.evaluate("Poor answer.", ground_truth="Answer")
+        assert quality == pytest.approx(0.4)
+        assert completed is False
+
+    def test_returns_tuple_of_float_and_bool(self):
+        ev = self._judge('{"correctness": 3, "completeness": 4, "reasoning": 3, "conciseness": 4}')
+        result = ev.evaluate("Some answer.")
+        assert len(result) == 2
+        assert isinstance(result[0], float)
+        assert isinstance(result[1], bool)
+
+    def test_empty_response_returns_zero_false(self):
+        ev = self._judge('{"correctness": 5, "completeness": 5, "reasoning": 5, "conciseness": 5}')
+        quality, completed = ev.evaluate("")
+        assert quality == 0.0
+        assert completed is False
+
+    def test_parse_failure_falls_back_to_heuristic(self):
+        """When judge returns invalid JSON both times, heuristic evaluator is used."""
+        ev = self._judge("Not valid JSON at all.", task_type='qa')
+        # Heuristic QAEvaluator with ground_truth "Paris" and response "London" → 0.0
+        quality, completed = ev.evaluate("London", ground_truth="Paris")
+        assert quality == 0.0
+        assert completed is False
+
+    def test_parse_failure_with_good_response_uses_heuristic(self):
+        """Fallback heuristic: QA with matching ground truth returns high score."""
+        ev = self._judge("invalid json", task_type='qa')
+        quality, completed = ev.evaluate("Paris", ground_truth="Paris")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_json_embedded_in_prose_is_parsed(self):
+        """Judge sometimes wraps JSON in prose — regex extraction should handle it."""
+        ev = self._judge(
+            'Here is my evaluation: {"correctness": 5, "completeness": 4, "reasoning": 4, "conciseness": 3}'
+        )
+        quality, completed = ev.evaluate("Good answer.", ground_truth="Expected")
+        assert isinstance(quality, float)
+        assert 0.0 <= quality <= 1.0
+
+    def test_no_ground_truth_still_scores(self):
+        ev = self._judge('{"correctness": 4, "completeness": 4, "reasoning": 4, "conciseness": 4}')
+        quality, completed = ev.evaluate("A self-contained response.")
+        assert 0.0 <= quality <= 1.0
+
+    def test_all_task_types_accepted(self):
+        for task in ('qa', 'summarization', 'classification', 'instruction_following'):
+            ev = self._judge(
+                '{"correctness": 3, "completeness": 3, "reasoning": 3, "conciseness": 3}',
+                task_type=task,
+            )
+            quality, _ = ev.evaluate("Some response.", ground_truth="ref")
+            assert 0.0 <= quality <= 1.0
+
+    def test_get_judge_evaluator_factory(self):
+        provider = MockProvider(response_text='{"correctness": 4, "completeness": 4, "reasoning": 4, "conciseness": 4}')
+        ev = get_judge_evaluator('qa', judge_provider=provider)
+        assert isinstance(ev, LLMJudgeEvaluator)
+        quality, completed = ev.evaluate("Paris", ground_truth="Paris")
+        assert 0.0 <= quality <= 1.0
