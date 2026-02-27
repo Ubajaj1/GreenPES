@@ -19,6 +19,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import matplotlib
@@ -75,6 +76,28 @@ def load_and_clean(path: str) -> pd.DataFrame:
     missing = REQUIRED_COLS - set(df.columns)
     if missing:
         raise ValueError(f"Results missing required columns: {missing}")
+
+    # Compute LLM judge quality from stored judge_scores (excludes conciseness
+    # to avoid circular reasoning — conciseness is correlated with output tokens,
+    # which already appears in the GreenPES denominator).
+    if 'judge_scores' in df.columns:
+        def _judge_quality(js: object) -> Optional[float]:
+            if not isinstance(js, dict):
+                return None
+            c = js.get('correctness', 3)
+            co = js.get('completeness', 3)
+            r = js.get('reasoning', 3)
+            return (c + co + r) / 3 / 5  # normalise 1-5 → 0-1
+
+        df['judge_quality'] = df['judge_scores'].apply(_judge_quality)
+        token_cost = df['input_tokens'] + 1.5 * df['output_tokens']
+        df['judge_greenpes'] = (df['judge_quality'] / token_cost.clip(lower=1) * 1000)
+        n_judge = df['judge_quality'].notna().sum()
+        print(f"  LLM judge quality computed for {n_judge}/{len(df)} records "
+              f"(correctness+completeness+reasoning, excl. conciseness)")
+    else:
+        df['judge_quality'] = None
+        df['judge_greenpes'] = None
 
     # Data summary
     print(f"\nData summary ({len(df)} successful runs):")
@@ -635,6 +658,10 @@ def rq7_scaling_laws(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict
         return float(x_dense[below[0]]) if len(below) > 0 else float(x_dense[-1])
 
     # ── Per (model, task) fitting ─────────────────────────────────────────────
+    # Use individual records (not strategy averages) for credible curve fitting.
+    # Each (model, task) pair has ~150 data points (5 strategies × 30 examples),
+    # with natural within-strategy variation in token counts (responses vary by
+    # question/content complexity). Strategy-averaged fits used only 5 points.
     present_tasks = [t for t in TASKS if t in df['task'].unique()]
     present_models = [m for m in MODEL_ORDER if m in df['model'].unique()] + \
                      [m for m in df['model'].unique() if m not in MODEL_ORDER]
@@ -642,20 +669,14 @@ def rq7_scaling_laws(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict
     fit_results: list[dict] = []
     stats: list[dict] = []
 
-    agg = (
-        df.groupby(['model', 'task', 'strategy'])
-        .agg(mean_tokens=('total_tokens', 'mean'), mean_quality=('quality', 'mean'))
-        .reset_index()
-    )
-
     for model_name in present_models:
         for task_name in present_tasks:
-            sub = agg[(agg['model'] == model_name) & (agg['task'] == task_name)]
-            if len(sub) < 3:
+            sub = df[(df['model'] == model_name) & (df['task'] == task_name)]
+            if len(sub) < 10:   # need at least 10 individual points
                 continue
 
-            x = sub['mean_tokens'].to_numpy(dtype=float)  # type: ignore[union-attr]
-            y = sub['mean_quality'].to_numpy(dtype=float)  # type: ignore[union-attr]
+            x = sub['total_tokens'].to_numpy(dtype=float)  # type: ignore[union-attr]
+            y = sub['quality'].to_numpy(dtype=float)        # type: ignore[union-attr]
             sort_idx = np.argsort(x)
             x, y = x[sort_idx], y[sort_idx]
 
@@ -719,7 +740,8 @@ def rq7_scaling_laws(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict
             })
 
             print(f"  {model_name}/{task_name}: best={best_name}, "
-                  f"AIC={best_aic:.2f}, saturation≈{sat_point:.0f} tokens")
+                  f"AIC={best_aic:.2f}, saturation≈{sat_point:.0f} tokens "
+                  f"(n={len(x)} individual records)")
 
             stats.append({
                 'rq': 'RQ7',
@@ -728,7 +750,7 @@ def rq7_scaling_laws(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict
                 'p_value': None,
                 'effect_size': round(sat_point, 1) if sat_point == sat_point else None,
                 'effect_metric': 'saturation_tokens',
-                'notes': f'model={model_name}, task={task_name}, best_fit={best_name}',
+                'notes': f'model={model_name}, task={task_name}, best_fit={best_name}, n={len(x)}',
             })
 
     # ── Figure 7: scatter + fit curves, one subplot per task ─────────────────
@@ -742,17 +764,19 @@ def rq7_scaling_laws(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict
         task_fits = [r for r in fit_results if r['task'] == task_name]
         for r in task_fits:
             color = model_color.get(r['model'], 'grey')
-            ax.scatter(r['x'], r['y'], color=color, s=40, zorder=3, label=r['model'])
+            # Individual points (small, semi-transparent to show density)
+            ax.scatter(r['x'], r['y'], color=color, s=8, alpha=0.25, zorder=2, label=r['model'])
+            # Fitted curve on top
             if r['best_fn'] is not None and r['best_params'] and len(r['x']) >= 2:
                 x_dense = np.linspace(min(r['x']) * 0.9, max(r['x']) * 1.2, 200)
                 try:
                     y_dense = r['best_fn'](x_dense, *r['best_params'])
-                    ax.plot(x_dense, y_dense, color=color, linewidth=1.2, alpha=0.7)
+                    ax.plot(x_dense, y_dense, color=color, linewidth=2.0, alpha=0.9, zorder=3)
                 except Exception:
                     pass
         ax.set_title(task_name, fontsize=11)
-        ax.set_xlabel('Mean Total Tokens')
-        ax.set_ylabel('Mean Quality')
+        ax.set_xlabel('Total Tokens')
+        ax.set_ylabel('Quality Score')
 
     # Deduplicate legend entries (one per model)
     handles, labels = axes7[0, 0].get_legend_handles_labels()
@@ -1027,6 +1051,155 @@ def rq8_optimizer_effectiveness(
     return (fig9, fig10), stats
 
 
+def rq_metric_robustness(df: pd.DataFrame) -> tuple[tuple[Figure, Figure], list[dict]]:
+    """
+    Metric Robustness: Validate GreenPES against quality signal choice and α.
+
+    Part A — Quality signal comparison:
+      Pearson r between heuristic quality (rule-based evaluator) and LLM judge
+      quality (correctness + completeness + reasoning, 1-5 normalised to 0-1).
+      A high r validates the simpler heuristic; per-strategy breakdown shows
+      where they agree/disagree.
+
+    Part B — α sensitivity:
+      Strategy rankings under α ∈ {1.0, 1.5, 2.0, 3.0, 4.0}.
+      Stable rankings across α justify the default α=1.5 as a reasonable proxy.
+
+    Figures:
+      fig11_quality_signal_comparison.png  — heuristic vs. judge scatter
+      fig12_alpha_sensitivity.png          — rank heatmap across α values
+    """
+    print("\n── Metric Robustness: quality signal + α sensitivity ──")
+
+    stats: list[dict] = []
+
+    # ── Part A: heuristic quality vs. judge quality ──────────────────────────
+    has_judge = 'judge_quality' in df.columns and df['judge_quality'].notna().any()
+
+    fig11, ax11 = plt.subplots(figsize=(7, 6))
+    if has_judge:
+        sub = df[df['judge_quality'].notna()].copy()
+        r_hj, p_hj = pearsonr(sub['quality'].astype(float), sub['judge_quality'].astype(float))
+        print(f"  Heuristic vs judge quality: Pearson r={r_hj:.3f}, p={p_hj:.4f}, n={len(sub)}")
+        stats.append({
+            'rq': 'Metric',
+            'test': 'quality_signal_correlation',
+            'statistic': round(float(r_hj), 4),
+            'p_value': round(float(p_hj), 4),
+            'effect_size': None,
+            'effect_metric': 'Pearson_r',
+            'notes': f'heuristic vs LLM judge quality (n={len(sub)})',
+        })
+
+        # Per-strategy r
+        for strat in sorted(sub['strategy'].unique()):
+            s_sub = sub[sub['strategy'] == strat]
+            if len(s_sub) < 5 or s_sub['quality'].std() == 0 or s_sub['judge_quality'].std() == 0:
+                continue
+            rs, _ = pearsonr(s_sub['quality'].astype(float), s_sub['judge_quality'].astype(float))
+            print(f"    {strat}: r={rs:.3f} (n={len(s_sub)})")
+            stats.append({
+                'rq': 'Metric',
+                'test': 'quality_signal_correlation_by_strategy',
+                'statistic': round(float(rs), 4),
+                'p_value': None,
+                'effect_size': None,
+                'effect_metric': 'Pearson_r',
+                'notes': f'strategy={strat}, n={len(s_sub)}',
+            })
+
+        strat_colors = {s: c for s, c in zip(
+            STRATEGIES, sns.color_palette('tab10', len(STRATEGIES))
+        )}
+        for strat, grp in sub.groupby('strategy'):
+            color = strat_colors.get(str(strat), 'grey')
+            ax11.scatter(grp['quality'].astype(float), grp['judge_quality'].astype(float),
+                         color=color, alpha=0.35, s=15, label=str(strat))
+        lims = [0, 1.05]
+        ax11.plot(lims, lims, 'k--', linewidth=0.8, alpha=0.5, label='y=x')
+        ax11.set_xlim(lims)
+        ax11.set_ylim(lims)
+        ax11.set_xlabel('Heuristic Quality (rule-based evaluator)')
+        ax11.set_ylabel('LLM Judge Quality\n(correctness+completeness+reasoning, normalised)')
+        ax11.set_title(
+            f'Figure 11: Heuristic vs. LLM Judge Quality\n(Pearson r={r_hj:.3f})',
+            fontsize=12,
+        )
+        # Deduplicate legend
+        handles, labels = ax11.get_legend_handles_labels()
+        seen11: dict[str, bool] = {}
+        unh, unl = [], []
+        for h, lbl in zip(handles, labels):
+            if lbl not in seen11:
+                seen11[lbl] = True
+                unh.append(h)
+                unl.append(lbl)
+        ax11.legend(unh, unl, title='Strategy', fontsize=8, bbox_to_anchor=(1.01, 1), loc='upper left')
+    else:
+        ax11.text(0.5, 0.5, 'No LLM judge scores in data\n(re-run benchmark with --evaluator llm_judge)',
+                  ha='center', va='center', transform=ax11.transAxes, fontsize=10)
+        ax11.set_title('Figure 11: Heuristic vs. LLM Judge Quality (no data)', fontsize=12)
+        print("  Skipped Part A — no judge_quality column or all null")
+    ax11.set_title(ax11.get_title(), fontsize=12)
+    fig11.tight_layout()
+
+    # ── Part B: α sensitivity ────────────────────────────────────────────────
+    alpha_values = [1.0, 1.5, 2.0, 3.0, 4.0]
+    present_strategies = [s for s in STRATEGIES if s in df['strategy'].values]
+
+    rank_matrix: dict[float, dict[str, int]] = {}
+    for alpha in alpha_values:
+        gpes_alpha = (df['quality'] / (df['input_tokens'] + alpha * df['output_tokens']).clip(lower=1) * 1000)
+        means = (
+            df.assign(gpes_alpha=gpes_alpha)
+            .groupby('strategy')['gpes_alpha']
+            .mean()
+        )
+        ranked = means.rank(ascending=False).to_dict()  # type: ignore[union-attr]
+        rank_matrix[alpha] = {s: int(ranked.get(s, 99)) for s in present_strategies}
+        stats.append({
+            'rq': 'Metric',
+            'test': f'alpha_sensitivity_alpha={alpha}',
+            'statistic': None,
+            'p_value': None,
+            'effect_size': None,
+            'effect_metric': None,
+            'notes': 'strategy rankings: ' + ', '.join(
+                f"{s}→{rank_matrix[alpha][s]}" for s in present_strategies
+            ),
+        })
+        print(f"  α={alpha}: " + ", ".join(
+            f"{s}(rank {rank_matrix[alpha][s]})" for s in present_strategies
+        ))
+
+    # Figure 12: rank heatmap (rows=strategies, cols=alpha values, values=rank 1-5)
+    fig12, ax12 = plt.subplots(figsize=(7, 4))
+    if rank_matrix:
+        rank_df = pd.DataFrame(rank_matrix, index=present_strategies)
+        rank_df.columns = [f'α={a}' for a in rank_df.columns]  # type: ignore[assignment]
+        sns.heatmap(
+            rank_df,
+            ax=ax12,
+            annot=True,
+            fmt='d',
+            cmap='RdYlGn_r',   # low rank (1=best) → green
+            linewidths=0.5,
+            cbar_kws={'label': 'Rank (1=highest GreenPES)'},
+            vmin=1,
+            vmax=len(present_strategies),
+        )
+        ax12.set_title('Figure 12: Strategy Rankings vs. α (GreenPES denominator weight)',
+                       fontsize=12, pad=10)
+        ax12.set_xlabel('α value (output-token weight in denominator)')
+        ax12.set_ylabel('Prompting Strategy')
+    else:
+        ax12.text(0.5, 0.5, 'Insufficient data for α sensitivity',
+                  ha='center', va='center', transform=ax12.transAxes)
+    fig12.tight_layout()
+
+    return (fig11, fig12), stats
+
+
 # ── Output helpers ────────────────────────────────────────────────────────────
 
 def save_stats_csv(all_stats: list[dict], output_dir: str) -> None:
@@ -1073,7 +1246,7 @@ def main() -> None:
     args = parser.parse_args()
 
     rqs_to_run = (
-        set(range(1, 9))
+        set(range(1, 10))   # 1–8 original + 9 metric robustness
         if args.rqs == 'all'
         else {int(r.strip()) for r in args.rqs.split(',')}
     )
@@ -1138,6 +1311,12 @@ def main() -> None:
         figures.append(('fig9_compression_scatter.png', fig9))
         figures.append(('fig10_compression_bars.png', fig10))
         all_stats.extend(s8)
+
+    if 9 in rqs_to_run:
+        (fig11, fig12), s9 = rq_metric_robustness(df)
+        figures.append(('fig11_quality_signal_comparison.png', fig11))
+        figures.append(('fig12_alpha_sensitivity.png', fig12))
+        all_stats.extend(s9)
 
     save_stats_csv(all_stats, args.output_dir)
     save_figures(figures, args.output_dir)

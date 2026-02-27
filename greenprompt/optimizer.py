@@ -108,46 +108,62 @@ class BaselineCompressor:
 
 
 # ── Rewriting templates ───────────────────────────────────────────────────────
+#
+# Three diverse, aggressive strategies used as candidates per iteration.
+# All three are applied to the current-best prompt; the most-compressed
+# candidate that passes the quality floor is accepted.
 
-_REWRITE_TEMPLATES: dict[str, str] = {
-    'compress': (
-        'Rewrite the following prompt to be shorter while preserving its full meaning. '
-        'Remove redundancy, filler words, and verbose phrasing. '
-        'Return ONLY the rewritten prompt, nothing else.\n\n'
-        'PROMPT:\n{prompt}'
+_CANDIDATE_TEMPLATES: dict[str, str] = {
+    'aggressive_compress': (
+        'You are a prompt compression expert. Your goal: make the prompt below as short as '
+        'possible while keeping it fully answerable for a {task_type} task.\n'
+        'Remove ALL of: role descriptions, filler words, politeness markers, redundant context, '
+        'verbose phrasing, and any content not strictly needed to complete the task.\n'
+        'Target at least 40% token reduction. Return ONLY the compressed prompt, no explanation.\n\n'
+        'Original prompt:\n{prompt}'
+    ),
+    'minimal_form': (
+        'Express the following prompt in the fewest words possible for a {task_type} task. '
+        'Imagine you are sending it as a text message with a strict character limit. '
+        'Keep only the essential question or instruction and any indispensable constraints. '
+        'Return ONLY the minimal prompt, nothing else.\n\n'
+        'Original prompt:\n{prompt}'
     ),
     'extract_core': (
-        'Extract only the core instruction from the following prompt. '
-        'Remove all examples, verbose context, and role descriptions. '
-        'Keep only what is essential to specify the task. '
-        'Return ONLY the rewritten prompt, nothing else.\n\n'
-        'PROMPT:\n{prompt}'
-    ),
-    'add_brevity': (
-        'Add a conciseness constraint to the following prompt without removing any content. '
-        'Append something like "Be concise." or "Answer in 1-2 sentences." '
-        'Return ONLY the modified prompt, nothing else.\n\n'
-        'PROMPT:\n{prompt}'
+        'Strip the following prompt down to its bare core instruction for a {task_type} task. '
+        'Remove: all examples, role-play setup, verbose context, and decorative language. '
+        'Keep: the task verb, the subject, and any hard constraints (e.g. format, length). '
+        'Return ONLY the stripped prompt, nothing else.\n\n'
+        'Original prompt:\n{prompt}'
     ),
 }
-
-_REWRITING_ORDER = ['compress', 'extract_core', 'add_brevity']
 
 
 # ── LLM-based Optimizer ───────────────────────────────────────────────────────
 
+# Minimum fraction of tokens that must be saved for a rewrite to be considered.
+_MIN_COMPRESSION = 0.05  # 5% token reduction required
+
+
 class PromptOptimizer:
     """
-    Iteratively rewrite a prompt using an LLM to improve efficiency
-    while maintaining a quality floor.
+    Iteratively compress a prompt using best-of-K LLM candidate selection.
 
-    Algorithm:
-      1. Score original prompt → baseline quality
-      2. Rewrite via LLM (compress → extract_core → add_brevity)
-      3. Score rewrite
-      4. Accept if quality ≥ floor × baseline_quality
-      5. Cascade: feed accepted version to next rewriting strategy
-      6. Return best accepted version (highest GreenPES)
+    Algorithm per iteration:
+      1. Generate K diverse rewrites of the current best prompt (in parallel
+         calls to the rewriter LLM) using task-aware templates.
+      2. Filter candidates that achieve at least MIN_COMPRESSION token
+         reduction (estimated by word count — no extra API calls needed).
+      3. Score only the most-compressed passing candidate with the full
+         evaluator (target model + optional LLM judge).
+      4. Accept if quality ≥ floor × original_quality.
+      5. Early-stop when marginal compression gain < 1% over previous iteration
+         or when no candidate passes the compression gate.
+      6. Return the best accepted version.
+
+    This is strictly stronger than single-candidate sequential rewriting:
+    three diverse, task-aware strategies compete each round, and only the
+    most aggressive compression that preserves quality survives.
     """
 
     def __init__(
@@ -163,7 +179,7 @@ class PromptOptimizer:
             scorer:            GreenPromptScorer used to evaluate each candidate.
             quality_floor:     Accept rewrites whose quality ≥ floor × original
                                (default 0.9 → within 10% of original quality).
-            max_iterations:    Maximum rewriting attempts (default 5).
+            max_iterations:    Maximum rewriting rounds (default 5).
         """
         self.rewriter_provider = rewriter_provider
         self.scorer = scorer
@@ -172,12 +188,16 @@ class PromptOptimizer:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _rewrite(self, prompt: str, strategy: str) -> str:
-        """Call the rewriter LLM with the given strategy template."""
-        template = _REWRITE_TEMPLATES.get(strategy, _REWRITE_TEMPLATES['compress'])
-        rewrite_prompt = template.format(prompt=prompt)
+    def _rewrite(self, prompt: str, strategy: str, task_type: str) -> str:
+        """Generate one rewrite candidate using the given strategy template."""
+        template = _CANDIDATE_TEMPLATES[strategy]
+        rewrite_prompt = template.format(prompt=prompt, task_type=task_type)
         response = self.rewriter_provider.generate(rewrite_prompt, max_tokens=500)
         return response.text.strip()
+
+    def _word_count(self, text: str) -> int:
+        """Fast proxy for token count used during candidate selection."""
+        return len(text.split())
 
     def _score(
         self,
@@ -213,15 +233,15 @@ class PromptOptimizer:
         Optimize a prompt for efficiency while preserving quality.
 
         Args:
-            prompt:       The original (verbose) prompt.
-            task_type:    Task type for quality evaluation.
-            ground_truth: Optional reference answer.
+            prompt:       The original (verbose) prompt to compress.
+            task_type:    Task type string; passed to task-aware rewrite templates.
+            ground_truth: Optional reference answer for quality evaluation.
             evaluator:    Custom QualityEvaluator (uses task default if None).
 
         Returns:
             OptimizationResult with the best accepted compressed version.
         """
-        # Step 1: baseline
+        # ── Baseline ──────────────────────────────────────────────────────────
         orig_quality, orig_greenpes, orig_tokens = self._score(
             prompt, task_type, ground_truth, evaluator
         )
@@ -242,66 +262,84 @@ class PromptOptimizer:
         best_greenpes = orig_greenpes
         best_tokens = orig_tokens
         current_prompt = prompt
-        iterations = 0
+        prev_compression = 1.0  # ratio at previous iteration (for early-stop)
 
-        # Steps 2-6: try rewriting strategies up to max_iterations
-        for strategy in _REWRITING_ORDER:
-            if iterations >= self.max_iterations:
-                break
-            iterations += 1
+        for iteration in range(1, self.max_iterations + 1):
+            current_words = self._word_count(current_prompt)
 
-            try:
-                candidate = self._rewrite(current_prompt, strategy)
-            except Exception as e:
+            # ── Step 1: generate K candidates ─────────────────────────────────
+            candidates: list[tuple[str, str, int]] = []  # (strategy, text, words)
+            for strategy in _CANDIDATE_TEMPLATES:
+                try:
+                    c = self._rewrite(current_prompt, strategy, task_type)
+                except Exception:
+                    continue
+                if c and c != current_prompt:
+                    candidates.append((strategy, c, self._word_count(c)))
+
+            # ── Step 2: filter by minimum compression gate ────────────────────
+            min_words = int(current_words * (1 - _MIN_COMPRESSION))
+            passing = [(s, c, w) for s, c, w in candidates if w <= min_words]
+
+            if not passing:
+                # No candidate achieved meaningful compression — stop early
                 history.append({
-                    'iteration': iterations,
-                    'strategy': strategy,
+                    'iteration': iteration,
+                    'strategy': 'none',
                     'prompt': current_prompt,
                     'quality': None,
                     'greenpes': None,
                     'tokens': None,
                     'accepted': False,
-                    'error': str(e),
+                    'note': 'no candidate passed compression gate',
                 })
-                continue
+                break
 
-            if not candidate or candidate == current_prompt:
-                continue
-
+            # ── Step 3: score only the most-compressed candidate ──────────────
+            best_strategy, best_candidate, _ = min(passing, key=lambda x: x[2])
             try:
                 c_quality, c_greenpes, c_tokens = self._score(
-                    candidate, task_type, ground_truth, evaluator
+                    best_candidate, task_type, ground_truth, evaluator
                 )
             except Exception as e:
                 history.append({
-                    'iteration': iterations,
-                    'strategy': strategy,
-                    'prompt': candidate,
+                    'iteration': iteration,
+                    'strategy': best_strategy,
+                    'prompt': best_candidate,
                     'quality': None,
                     'greenpes': None,
                     'tokens': None,
                     'accepted': False,
                     'error': str(e),
                 })
-                continue
+                break
 
             accepted = c_quality >= quality_threshold
+
             history.append({
-                'iteration': iterations,
-                'strategy': strategy,
-                'prompt': candidate,
+                'iteration': iteration,
+                'strategy': best_strategy,
+                'prompt': best_candidate,
                 'quality': c_quality,
                 'greenpes': c_greenpes,
                 'tokens': c_tokens,
                 'accepted': accepted,
+                'n_candidates_generated': len(candidates),
+                'n_candidates_passing': len(passing),
             })
 
             if accepted and c_greenpes > best_greenpes:
-                best_prompt = candidate
+                best_prompt = best_candidate
                 best_quality = c_quality
                 best_greenpes = c_greenpes
                 best_tokens = c_tokens
-                current_prompt = candidate  # cascade: next strategy refines this
+                current_prompt = best_candidate
+
+                # ── Step 5: early-stop on marginal gain ───────────────────────
+                current_ratio = orig_tokens / c_tokens if c_tokens > 0 else 1.0
+                if current_ratio - prev_compression < 0.01:
+                    break
+                prev_compression = current_ratio
 
         compression_ratio = orig_tokens / best_tokens if best_tokens > 0 else 1.0
         quality_retained = best_quality / orig_quality if orig_quality > 0 else 1.0
@@ -315,6 +353,6 @@ class PromptOptimizer:
             original_quality=orig_quality,
             optimized_quality=best_quality,
             quality_retained=quality_retained,
-            iterations=iterations,
+            iterations=len(history) - 1,
             history=history,
         )
