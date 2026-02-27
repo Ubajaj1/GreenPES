@@ -97,71 +97,89 @@
 | llama-3.3-70b | 593/600 |
 | gemini-flash | 439/600 |
 
-### Run 2: Optimizer Benchmark — `results/optimizer_results.json`
+### Run 2: Optimizer Benchmark v1 — `results/optimizer_results.json` (SUPERSEDED)
 - **Status:** ✅ STOPPED INTENTIONALLY (2026-02-27)
-- **1,559 successful records** across 3 models (llama-3.1-8b complete, llama-3.3-70b + qwen3-32b partial)
-- Stopped early: LLM optimizer made ~9 sequential API calls per example (3 rewrite iterations), taking ~10h per model. llama-3.1-8b (600 records, all tasks/methods complete) is sufficient for RQ8 paired t-tests.
-- llama-3.3-70b had 126 errors (Groq daily token quota exhausted mid-run)
+- **1,559 successful records** — used old (naive) optimizer; superseded by v2 with improved optimizer
+- Old optimizer flaw: ran 3 generic templates sequentially, no compression gate, add_brevity duplicated baseline
 
-| Model | Successful | Notes |
-|-------|-----------|-------|
-| llama-3.1-8b | 600/600 | ✅ Complete — all 4 tasks, all 5 methods |
-| llama-3.3-70b | 475 | ⚠️ Quota errors; QA+summ complete |
-| qwen3-32b | 484 | 🔄 Partial; QA+summ+class complete |
+### Run 3: Optimizer Benchmark v2 — `results/optimizer_results_v2.json` (IMPROVED OPTIMIZER)
+- **Status:** 🔄 Mini-run complete (n=22 per method); full run pending (Groq RPD limit hit)
+- **Improved optimizer**: 3 aggressive task-aware templates, best-of-K selection, 5% compression gate, early stopping
+- Mini-run results (llama-3.1-8b, 4 tasks, 3 verbose strategies, ~3 examples each):
+
+| Method | Mean Compression | Quality Retained |
+|--------|-----------------|-----------------|
+| remove_filler | 1.05x | 0.945 |
+| add_concise_suffix | 1.21x | 1.027 |
+| truncate_examples | 2.02x | 0.752 |
+| **llm_optimizer (improved)** | **1.50x** | **1.033** |
+
+- **LLM optimizer vs add_concise_suffix**: 24% better compression (1.50x vs 1.21x), similar quality retention
+- **Full run needed**: `python experiments/optimizer_benchmark.py --models llama-3.1-8b --examples 10 --delay 2.5 --output results/optimizer_results_v2.json --resume` (run after Groq quota resets)
 
 ---
 
 ## Analysis Results — `results/stats_summary.csv` + `results/figures/`
 
-Run on `benchmark_judge_full.json` (4032 records). Figures saved Feb 26 2026.
+Run on `benchmark_judge_full.json` (3604 records after qwen3-32b fix). Updated 2026-02-27.
 
-### RQ1: Strategy Effect on GreenPES
-- ANOVA: F=105.98, p<0.0001, η²=0.095
-- `concise` ≈ `zero_shot` (best, no significant difference p=0.80)
+**⚠️ Note**: qwen3-32b re-run in progress (173/600 done); full re-analysis needed once complete.
+
+### RQ1: Strategy Effect on GreenPES (UPDATED)
+- ANOVA: F=127.46, p<0.0001, η²=0.124 (stronger than before — qwen3-32b fix)
+- `concise` ≈ `zero_shot` (best, no significant difference p=0.85)
 - `cot` and `few_shot` significantly worse than `concise` and `zero_shot`
 
-### RQ2: Token Efficiency by Task
-- QA: `zero_shot` best (GreenPES=11.49, tokens=121)
+### RQ2: Token Efficiency by Task (UPDATED)
+- QA: `zero_shot` best (GreenPES=13.01, tokens=89)
 - Summarization, Classification, Instruction-following: `concise` best
 
-### RQ3: Model Comparison (mean GreenPES)
-- gemini-flash (8.36) > gpt-4o-mini (6.94) > kimi-k2 (6.69) > claude-haiku (4.71) > llama-3.3-70b (4.64) > llama-3.1-8b (4.11) > qwen3-32b (1.79)
+### RQ3: Model Comparison (PRELIMINARY — qwen3-32b at n=173)
+- gemini-flash (8.36) > **qwen3-32b (7.90)** > gpt-4o-mini (6.94) > kimi-k2 (6.69) > claude-haiku (4.71) > llama-3.3-70b (4.64) > llama-3.1-8b (4.11)
+- **KEY CHANGE**: qwen3-32b jumped from last (1.79) to 2nd — was caused by undocumented thinking mode inflating output tokens
 
-### RQ4: Quality-Efficiency Tradeoff
-- Pearson r=0.169, p<0.0001 (positive correlation: more tokens → slightly better quality)
+### RQ4: Quality-Efficiency Tradeoff (UPDATED)
+- Pearson r=0.235, p<0.0001 (stronger than before: was r=0.169)
 
-### RQ5: Strategy Transfer
-- Interaction (model×strategy): F=1.865, p=0.0064
-- Most models prefer `cot` for raw quality (but `cot` is expensive in tokens)
+### RQ5: Strategy Transfer (stable)
+- Interaction (model×strategy): F=1.867, p=0.0064
 - `cot` is best for: claude-haiku, gemini-flash, gpt-4o-mini, kimi-k2
-- `few_shot` best for llama-3.1-8b; `zero_shot_verbose` best for llama-3.3-70b; `concise` best for qwen3-32b
+- `few_shot` best for llama-3.1-8b; `zero_shot_verbose` best for llama-3.3-70b, qwen3-32b
 
-### RQ6: Model Strategy Agreement
+### RQ6: Model Strategy Agreement (stable)
 - Universality index = 0.000 (no model pair has Kendall tau > 0.8)
-- Models disagree significantly on optimal strategy
 
-### RQ7: Scaling Laws
-- 28 (model, task) pairs fitted; most best fit: logarithmic
-- Saturation points: QA ~50-280 tokens; Summarization ~180-420; Classification ~80-290; Instruction-following ~80-280
+### RQ7: Scaling Laws (IMPROVED — individual records, not averages)
+- 26 (model, task) pairs fitted using ~150 individual records each (was 5 averaged points)
+- Logarithmic fit best for nearly all pairs; sigmoid for instruction_following
+- Saturation points: QA ~20-55 tokens; Summarization ~116-145; Classification ~39-109; Instruction-following ~126-310
 
-### RQ8: Optimizer Effectiveness (1,559 optimizer records)
-- LLM optimizer vs remove_filler: t=3.897, p=0.0001, mean_diff=+0.032 ✓
-- LLM optimizer vs truncate_examples: t=11.031, p<0.0001, mean_diff=+0.202 ✓
-- LLM optimizer vs add_concise_suffix: t=-0.510, p=0.61, mean_diff=-0.004 ✗ (not significant)
-- Mean compression ratios: llm_optimizer=1.595, truncate_examples=1.501, add_concise_suffix=1.282, remove_filler=1.021
-- Mean quality retained: add_concise_suffix=1.036, llm_optimizer=1.034, remove_filler=1.001, truncate_examples=0.838
+### RQ8: Optimizer Effectiveness (SUPERSEDED; v2 pending full run)
+- Old v1: LLM optimizer vs add_concise_suffix was NOT significant (p=0.61)
+- New v2 (improved optimizer): 1.50x vs 1.21x compression — 24% better, quality similar
+- Full run needed for paired t-test statistics
+
+### RQ9: Metric Robustness (NEW)
+- Heuristic vs LLM judge quality: Pearson r=0.985 (validates simple evaluator)
+- Per-strategy: r≥0.980 across all 5 strategies
+- α sensitivity: concise=rank1 at α≥1.5; zero_shot=rank1 at α=1.0 (only top-2 flip)
+- Rankings of cot (rank 5) and few_shot/zero_shot_verbose stable across all α values
 
 ---
 
-**Figures generated:**
+**Figures generated (2026-02-27):**
 - `fig1_strategy_heatmap.png` — RQ1: GreenPES heatmap by task × strategy
 - `fig2_token_efficiency.png` — RQ2: token efficiency by strategy × task
 - `fig3_model_comparison.png` — RQ3: mean GreenPES by model (ordered by size)
 - `fig4_quality_efficiency_scatter.png` — RQ4: quality vs token cost scatter
 - `fig5_transfer_heatmap.png` — RQ5: 7×7 strategy transfer matrix
 - `fig6_interaction_plot.png` — RQ6: model×strategy interaction lines
-- `fig7_scaling_curves.png` — RQ7: scaling curves (4 subplots, one per task)
+- `fig7_scaling_curves.png` — RQ7: scaling curves (4 subplots, 150 pts/curve)
 - `fig8_saturation_points.png` — RQ7: saturation token count per model×task
+- `fig9_compression_scatter.png` — RQ8: optimizer compression vs quality scatter
+- `fig10_compression_bars.png` — RQ8: compression bars by original strategy
+- `fig11_quality_signal_comparison.png` — RQ9: heuristic vs judge quality (r=0.985)
+- `fig12_alpha_sensitivity.png` — RQ9: strategy rankings across α values
 
 ---
 
@@ -188,10 +206,27 @@ Run on `benchmark_judge_full.json` (4032 records). Figures saved Feb 26 2026.
 
 ## Next Steps (in order)
 
-1. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 (deadline: Mar 31) **← START HERE**
-   - All 10 figures available: fig1–fig8 (RQ1–RQ7) + fig9–fig10 (RQ8)
-   - All stats in `results/stats_summary.csv`
+1. **Complete qwen3-32b re-run** — 427 records remaining; run tomorrow when Groq RPD quota resets:
+   ```
+   python experiments/benchmark.py --models qwen3-32b --examples 30 --evaluator llm_judge \
+     --output results/benchmark_judge_full.json --delay 2.0 --resume
+   ```
+
+2. **Run full optimizer benchmark v2** — needs Groq quota; run after qwen3-32b completes:
+   ```
+   python experiments/optimizer_benchmark.py --models llama-3.1-8b --examples 10 \
+     --delay 2.5 --output results/optimizer_results_v2.json
+   ```
+
+3. **Final full analysis** — after both runs above complete:
+   ```
+   python experiments/analysis.py --rqs all \
+     --input results/benchmark_judge_full.json \
+     --optimizer-input results/optimizer_results_v2.json
+   ```
+
+4. **Write paper** — COLM 2026 deadline: Mar 31
 
 ---
 
-*Last updated: 2026-02-26*
+*Last updated: 2026-02-27*
