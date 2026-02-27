@@ -98,11 +98,16 @@
 | gemini-flash | 439/600 |
 
 ### Run 2: Optimizer Benchmark — `results/optimizer_results.json`
-- **Status:** 🔄 IN PROGRESS (started 2026-02-26 ~11:01 PM)
-- 6 models (excl. gemini-flash) × 4 tasks × 3 verbose_strategies × 10 examples × 5 methods
-- Target: ~3600 records
-- Command: `python experiments/optimizer_benchmark.py --models llama-3.1-8b,llama-3.3-70b,qwen3-32b,kimi-k2,gpt-4o-mini,claude-haiku --examples 10 --delay 2.0 --output results/optimizer_results.json`
-- To resume if interrupted: add `--resume`
+- **Status:** ✅ STOPPED INTENTIONALLY (2026-02-27)
+- **1,559 successful records** across 3 models (llama-3.1-8b complete, llama-3.3-70b + qwen3-32b partial)
+- Stopped early: LLM optimizer made ~9 sequential API calls per example (3 rewrite iterations), taking ~10h per model. llama-3.1-8b (600 records, all tasks/methods complete) is sufficient for RQ8 paired t-tests.
+- llama-3.3-70b had 126 errors (Groq daily token quota exhausted mid-run)
+
+| Model | Successful | Notes |
+|-------|-----------|-------|
+| llama-3.1-8b | 600/600 | ✅ Complete — all 4 tasks, all 5 methods |
+| llama-3.3-70b | 475 | ⚠️ Quota errors; QA+summ complete |
+| qwen3-32b | 484 | 🔄 Partial; QA+summ+class complete |
 
 ---
 
@@ -139,8 +144,12 @@ Run on `benchmark_judge_full.json` (4032 records). Figures saved Feb 26 2026.
 - 28 (model, task) pairs fitted; most best fit: logarithmic
 - Saturation points: QA ~50-280 tokens; Summarization ~180-420; Classification ~80-290; Instruction-following ~80-280
 
-### RQ8: Optimizer Effectiveness
-- ⏳ Pending optimizer_results.json completion
+### RQ8: Optimizer Effectiveness (1,559 optimizer records)
+- LLM optimizer vs remove_filler: t=3.897, p=0.0001, mean_diff=+0.032 ✓
+- LLM optimizer vs truncate_examples: t=11.031, p<0.0001, mean_diff=+0.202 ✓
+- LLM optimizer vs add_concise_suffix: t=-0.510, p=0.61, mean_diff=-0.004 ✗ (not significant)
+- Mean compression ratios: llm_optimizer=1.595, truncate_examples=1.501, add_concise_suffix=1.282, remove_filler=1.021
+- Mean quality retained: add_concise_suffix=1.036, llm_optimizer=1.034, remove_filler=1.001, truncate_examples=0.838
 
 ---
 
@@ -179,15 +188,9 @@ Run on `benchmark_judge_full.json` (4032 records). Figures saved Feb 26 2026.
 
 ## Next Steps (in order)
 
-1. **Wait for optimizer benchmark** to finish (~2h run, started 2026-02-26 11PM)
-   - Check progress: `tail -30 /private/tmp/claude-501/-Users-utkarshbajaj-Documents-05-Code-Projects-GreenPES/tasks/b94ce2e.output`
-   - Or check results: `python3 -c "import json; d=json.load(open('results/optimizer_results.json')); print(len(d))"`
-   - If interrupted: `python experiments/optimizer_benchmark.py --models llama-3.1-8b,llama-3.3-70b,qwen3-32b,kimi-k2,gpt-4o-mini,claude-haiku --examples 10 --delay 2.0 --resume`
-2. **Run RQ8 analysis** once optimizer data is ready:
-   ```bash
-   python experiments/analysis.py --rqs 8 --input results/benchmark_judge_full.json --optimizer-input results/optimizer_results.json --output-dir results/
-   ```
-3. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 (deadline: Mar 31)
+1. **Write paper** — use `results/stats_summary.csv` + `results/figures/` for COLM 2026 (deadline: Mar 31) **← START HERE**
+   - All 10 figures available: fig1–fig8 (RQ1–RQ7) + fig9–fig10 (RQ8)
+   - All stats in `results/stats_summary.csv`
 
 ---
 
