@@ -160,7 +160,8 @@ def run_saturation_benchmark(
                         print(f"{label} ERROR: {e}")
 
                     results.append(record)
-                    done.add(key)
+                    if 'error' not in record:
+                        done.add(key)
                     _save(results, output_path)
 
                     if delay_between_calls > 0:
