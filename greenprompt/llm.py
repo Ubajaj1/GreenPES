@@ -219,9 +219,15 @@ class TogetherProvider(LLMProvider):
 class MockProvider(LLMProvider):
     """Mock provider for testing without API calls."""
 
-    def __init__(self, response_text: str = "This is a mock response.", tokens_per_word: float = 1.3):
+    def __init__(
+        self,
+        response_text: str = "This is a mock response.",
+        tokens_per_word: float = 1.3,
+        model: str = "mock",
+    ):
         self.response_text = response_text
         self.tokens_per_word = tokens_per_word
+        self.model_name = model
 
     def generate(self, prompt: str, max_tokens: int = 500) -> LLMResponse:
         input_tokens = int(len(prompt.split()) * self.tokens_per_word)
@@ -232,5 +238,5 @@ class MockProvider(LLMProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=10.0,
-            model="mock"
+            model=self.model_name,
         )
