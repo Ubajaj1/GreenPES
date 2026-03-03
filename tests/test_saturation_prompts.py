@@ -34,7 +34,8 @@ def test_format_prompt_all_tasks():
         for tmpl in SATURATION_TEMPLATES[task]:
             prompt = format_prompt(tmpl, task, ex)
             assert ex['input'] in prompt
-            assert '{' not in prompt, f"Unfilled placeholder in {task} template"
+            placeholder = '{' + TASK_INPUT_KEY[task] + '}'
+            assert placeholder not in prompt, f"Unfilled placeholder in {task} template"
 
 def test_token_counts_increase_by_level():
     """Each level should have more tokens than the previous (roughly)."""

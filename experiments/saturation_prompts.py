@@ -19,34 +19,34 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
 
     # ── QA ────────────────────────────────────────────────────────────────────
     'qa': [
-        # Level 1 (~10 tokens): bare question
+        # Level 1: bare question
         "{question}",
 
-        # Level 2 (~25 tokens): task label
+        # Level 2: + task label
         "Answer this question: {question}",
 
-        # Level 3 (~50 tokens): + accuracy instruction
+        # Level 3: + accuracy instruction
         "Answer this question accurately and concisely.\n\nQuestion: {question}",
 
-        # Level 4 (~100 tokens): + format + uncertainty handling
+        # Level 4: + format + uncertainty handling
         (
-            "Answer this question accurately. "
+            "Answer this question accurately and concisely. "
             "Respond in 1-2 sentences. "
             "If you don't know the answer, say 'I don't know'.\n\n"
             "Question: {question}"
         ),
 
-        # Level 5 (~175 tokens): + role persona
+        # Level 5: + role persona
         (
             "You are a knowledgeable and precise assistant. "
             "Answer the following question accurately and concisely. "
-            "Keep your response to 1-2 sentences. "
-            "Stick to facts only. "
-            "If you are not confident in the answer, say 'I don't know' rather than guessing.\n\n"
+            "Respond in 1-2 sentences. "
+            "If you don't know the answer, say 'I don't know'. "
+            "Stick to facts only.\n\n"
             "Question: {question}"
         ),
 
-        # Level 6 (~300 tokens): + detailed guidelines
+        # Level 6: + detailed guidelines
         (
             "You are a knowledgeable and precise assistant. "
             "Your task is to answer questions accurately and concisely.\n\n"
@@ -60,7 +60,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Question: {question}"
         ),
 
-        # Level 7 (~500 tokens): + 1 worked example
+        # Level 7: + 1 worked example
         (
             "You are a knowledgeable and precise assistant. "
             "Your task is to answer questions accurately and concisely.\n\n"
@@ -81,20 +81,16 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
 
     # ── CLASSIFICATION ────────────────────────────────────────────────────────
     'classification': [
-        # Level 1 (~10 tokens): bare
+        # Level 1: bare
         "Classify: {text}",
 
-        # Level 2 (~25 tokens): + class names
+        # Level 2: + class names
         "Classify sentiment as positive, negative, or neutral: {text}",
 
-        # Level 3 (~50 tokens): + output format
-        (
-            "Classify the sentiment of the following text as positive, negative, or neutral. "
-            "Respond with only the label.\n\n"
-            "Text: {text}"
-        ),
+        # Level 3: + output format
+        "Classify sentiment as positive, negative, or neutral. Respond with only the label: {text}",
 
-        # Level 4 (~100 tokens): + label definitions
+        # Level 4: + label definitions
         (
             "Classify the sentiment of the following text as positive, negative, or neutral. "
             "Respond with only the label.\n\n"
@@ -105,7 +101,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Text: {text}"
         ),
 
-        # Level 5 (~175 tokens): + edge case handling
+        # Level 5: + edge case handling
         (
             "Classify the sentiment of the following text as positive, negative, or neutral. "
             "Respond with only the label.\n\n"
@@ -118,7 +114,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Text: {text}"
         ),
 
-        # Level 6 (~300 tokens): + role + full guidelines
+        # Level 6: + role + full guidelines
         (
             "You are a sentiment classification expert. "
             "Classify the sentiment of the following text as positive, negative, or neutral.\n\n"
@@ -133,7 +129,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Text: {text}"
         ),
 
-        # Level 7 (~500 tokens): + 1 worked example
+        # Level 7: + 1 worked example
         (
             "You are a sentiment classification expert. "
             "Classify the sentiment of the following text as positive, negative, or neutral.\n\n"
@@ -155,23 +151,23 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
 
     # ── SUMMARIZATION ─────────────────────────────────────────────────────────
     'summarization': [
-        # Level 1 (~10 tokens): bare
+        # Level 1: bare
         "Summarize: {text}",
 
-        # Level 2 (~25 tokens): + task label + text marker
+        # Level 2: + task label + text marker
         "Write a summary of the following text:\n\n{text}",
 
-        # Level 3 (~50 tokens): + length constraint
+        # Level 3: + length constraint
         "Write a concise summary of the following text in 2-3 sentences:\n\n{text}",
 
-        # Level 4 (~100 tokens): + content guidelines
+        # Level 4: + content guidelines
         (
             "Write a concise summary of the following text in 2-3 sentences. "
             "Capture the main points, preserve key facts, and avoid personal opinions.\n\n"
             "Text: {text}"
         ),
 
-        # Level 5 (~175 tokens): + role + output format
+        # Level 5: + role + output format
         (
             "You are a professional summarizer. "
             "Write a concise summary of the following text in 2-3 sentences.\n\n"
@@ -183,7 +179,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Text: {text}"
         ),
 
-        # Level 6 (~300 tokens): + detailed inclusion/exclusion criteria
+        # Level 6: + detailed inclusion/exclusion criteria
         (
             "You are a professional summarizer. "
             "Write a concise summary of the following text in exactly 2-3 sentences.\n\n"
@@ -200,7 +196,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Text: {text}"
         ),
 
-        # Level 7 (~500 tokens): + 1 worked example
+        # Level 7: + 1 worked example
         (
             "You are a professional summarizer. "
             "Write a concise summary of the following text in exactly 2-3 sentences.\n\n"
@@ -229,20 +225,20 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
 
     # ── INSTRUCTION FOLLOWING ─────────────────────────────────────────────────
     'instruction_following': [
-        # Level 1 (~15 tokens): bare instruction
+        # Level 1: bare instruction
         "{instruction}",
 
-        # Level 2 (~30 tokens): + task framing
+        # Level 2: + task framing
         "Follow this instruction carefully:\n\n{instruction}",
 
-        # Level 3 (~60 tokens): + completeness requirement
+        # Level 3: + completeness requirement
         (
             "Follow this instruction carefully and completely. "
             "Satisfy every requirement stated.\n\n"
             "Instruction: {instruction}"
         ),
 
-        # Level 4 (~110 tokens): + constraint adherence
+        # Level 4: + constraint adherence
         (
             "Follow this instruction carefully and completely. "
             "Satisfy every requirement stated. "
@@ -251,7 +247,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Instruction: {instruction}"
         ),
 
-        # Level 5 (~180 tokens): + role + output format rule
+        # Level 5: + role + output format rule
         (
             "You are a precise instruction-following assistant. "
             "Follow the instruction below carefully and completely.\n\n"
@@ -263,7 +259,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Instruction: {instruction}"
         ),
 
-        # Level 6 (~300 tokens): + verification checklist
+        # Level 6: + verification checklist
         (
             "You are a precise instruction-following assistant. "
             "Follow the instruction below carefully and completely.\n\n"
@@ -277,7 +273,7 @@ SATURATION_TEMPLATES: dict[str, list[str]] = {
             "Instruction: {instruction}"
         ),
 
-        # Level 7 (~500 tokens): + 1 worked example
+        # Level 7: + 1 worked example
         (
             "You are a precise instruction-following assistant. "
             "Follow the instruction below carefully and completely.\n\n"
