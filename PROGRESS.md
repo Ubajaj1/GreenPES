@@ -81,11 +81,11 @@
 
 ## Benchmark Runs
 
-### Run 1: Main Benchmark (LLM Judge) — `results/benchmark_judge_full.json`
+### Run 1: Main Benchmark (LLM Judge) — `results/benchmark_judge_full.json` ✅ COMPLETE
 - **4032 successful** / 4517 total records (485 errors)
 - 7 models × 4 tasks × 5 strategies × 30 examples per task
 - All records include `judge_scores` (4-dimension LLM judge: correctness, completeness, reasoning, conciseness)
-- gemini-flash: 439/600 (quota exhausted); llama-3.3-70b: 593/600 (7 rate-limit errors)
+- qwen3-32b re-run completed 2026-03-03 (was stuck at 174/600); now 600/600
 
 | Model | Successful |
 |-------|-----------|
@@ -93,7 +93,7 @@
 | gpt-4o-mini | 600/600 |
 | kimi-k2 | 600/600 |
 | llama-3.1-8b | 600/600 |
-| qwen3-32b | 600/600 |
+| qwen3-32b | 600/600 ✅ completed 2026-03-03 |
 | llama-3.3-70b | 593/600 |
 | gemini-flash | 439/600 |
 
@@ -121,53 +121,51 @@
 
 ## Analysis Results — `results/stats_summary.csv` + `results/figures/`
 
-Run on `benchmark_judge_full.json` (3604 records after qwen3-32b fix). Updated 2026-02-27.
+Run on `benchmark_judge_full.json` (4032 records, all models complete). Updated 2026-03-03.
 
-**⚠️ Note**: qwen3-32b re-run in progress (173/600 done); full re-analysis needed once complete.
-
-### RQ1: Strategy Effect on GreenPES (UPDATED)
-- ANOVA: F=127.46, p<0.0001, η²=0.124 (stronger than before — qwen3-32b fix)
-- `concise` ≈ `zero_shot` (best, no significant difference p=0.85)
+### RQ1: Strategy Effect on GreenPES (FINAL)
+- ANOVA: F=144.07, p<0.0001, η²=0.125
+- `concise` ≈ `zero_shot` (best, no significant difference p=0.61)
 - `cot` and `few_shot` significantly worse than `concise` and `zero_shot`
 
-### RQ2: Token Efficiency by Task (UPDATED)
+### RQ2: Token Efficiency by Task (FINAL)
 - QA: `zero_shot` best (GreenPES=13.01, tokens=89)
 - Summarization, Classification, Instruction-following: `concise` best
 
-### RQ3: Model Comparison (PRELIMINARY — qwen3-32b at n=173)
-- gemini-flash (8.36) > **qwen3-32b (7.90)** > gpt-4o-mini (6.94) > kimi-k2 (6.69) > claude-haiku (4.71) > llama-3.3-70b (4.64) > llama-3.1-8b (4.11)
-- **KEY CHANGE**: qwen3-32b jumped from last (1.79) to 2nd — was caused by undocumented thinking mode inflating output tokens
+### RQ3: Model Comparison (FINAL — all 7 models at 600 records each)
+- gemini-flash (8.36) > gpt-4o-mini (6.94) > kimi-k2 (6.69) > **qwen3-32b (5.59)** > claude-haiku (4.71) > llama-3.3-70b (4.64) > llama-3.1-8b (4.11)
+- qwen3-32b settled at 4th (was inflated at 2nd when only 173/600 records)
 
-### RQ4: Quality-Efficiency Tradeoff (UPDATED)
-- Pearson r=0.235, p<0.0001 (stronger than before: was r=0.169)
+### RQ4: Quality-Efficiency Tradeoff (FINAL)
+- Pearson r=0.242, p<0.0001
 
-### RQ5: Strategy Transfer (stable)
-- Interaction (model×strategy): F=1.867, p=0.0064
-- `cot` is best for: claude-haiku, gemini-flash, gpt-4o-mini, kimi-k2
-- `few_shot` best for llama-3.1-8b; `zero_shot_verbose` best for llama-3.3-70b, qwen3-32b
+### RQ5: Strategy Transfer (FINAL)
+- Interaction (model×strategy): F=1.893, p=0.0054
+- `cot` best for: claude-haiku, gemini-flash, gpt-4o-mini, kimi-k2
+- `few_shot` best for llama-3.1-8b; `zero_shot_verbose` best for llama-3.3-70b; `zero_shot` best for qwen3-32b
 
-### RQ6: Model Strategy Agreement (stable)
+### RQ6: Model Strategy Agreement (FINAL)
 - Universality index = 0.000 (no model pair has Kendall tau > 0.8)
 
-### RQ7: Scaling Laws (IMPROVED — individual records, not averages)
-- 26 (model, task) pairs fitted using ~150 individual records each (was 5 averaged points)
-- Logarithmic fit best for nearly all pairs; sigmoid for instruction_following
+### RQ7: Scaling Laws (FINAL)
+- 28 (model, task) pairs fitted using ~150 individual records each
+- Logarithmic fit best for nearly all pairs; sigmoid for instruction_following across all models
 - Saturation points: QA ~20-55 tokens; Summarization ~116-145; Classification ~39-109; Instruction-following ~126-310
 
-### RQ8: Optimizer Effectiveness (SUPERSEDED; v2 pending full run)
-- Old v1: LLM optimizer vs add_concise_suffix was NOT significant (p=0.61)
-- New v2 (improved optimizer): 1.50x vs 1.21x compression — 24% better, quality similar
-- Full run needed for paired t-test statistics
+### RQ8: Optimizer Effectiveness (FINAL — v2)
+- llm_optimizer vs add_concise_suffix: p=0.989 (NOT significant — ties)
+- llm_optimizer vs truncate_examples: p=0.0006 (significant — LLM optimizer better quality)
+- add_concise_suffix: 1.305x compression, 1.016 quality retained
+- llm_optimizer: 1.400x compression, 1.016 quality retained
 
-### RQ9: Metric Robustness (NEW)
-- Heuristic vs LLM judge quality: Pearson r=0.985 (validates simple evaluator)
+### RQ9: Metric Robustness (FINAL)
+- Heuristic vs LLM judge quality: Pearson r=0.986 (validates simple evaluator)
 - Per-strategy: r≥0.980 across all 5 strategies
-- α sensitivity: concise=rank1 at α≥1.5; zero_shot=rank1 at α=1.0 (only top-2 flip)
-- Rankings of cot (rank 5) and few_shot/zero_shot_verbose stable across all α values
+- Rankings stable across α=1.0–4.0 (only top-2 swap at α=1.0)
 
 ---
 
-**Figures generated (2026-02-27):**
+**Figures generated (2026-03-03):**
 - `fig1_strategy_heatmap.png` — RQ1: GreenPES heatmap by task × strategy
 - `fig2_token_efficiency.png` — RQ2: token efficiency by strategy × task
 - `fig3_model_comparison.png` — RQ3: mean GreenPES by model (ordered by size)
@@ -204,29 +202,45 @@ Run on `benchmark_judge_full.json` (3604 records after qwen3-32b fix). Updated 2
 
 ---
 
-## Next Steps (in order)
+## Phase 7: Saturation Experiment (NEW — 2026-03-03)
 
-1. **Complete qwen3-32b re-run** — 427 records remaining; run tomorrow when Groq RPD quota resets:
-   ```
-   python experiments/benchmark.py --models qwen3-32b --examples 30 --evaluator llm_judge \
-     --output results/benchmark_judge_full.json --delay 2.0 --resume
-   ```
+Controlled experiment varying prompt length (7 additive levels) per task, holding content type constant. Tests the saturation hypothesis: quality plateaus logarithmically at task-specific token thresholds.
 
-2. **Run full optimizer benchmark v2** — needs Groq quota; run after qwen3-32b completes:
-   ```
-   python experiments/optimizer_benchmark.py --models llama-3.1-8b --examples 10 \
-     --delay 2.5 --output results/optimizer_results_v2.json
-   ```
+- [x] Task 7.1: `experiments/saturation_prompts.py` — 7-level additive templates × 4 tasks (28 templates total)
+- [x] Task 7.2: `experiments/saturation_benchmark.py` — runner with --resume, heuristic eval, 7 models
+- [ ] Task 7.3: `experiments/saturation_analysis.py` — curve fitting, saturation points, 2 figures
 
-3. **Final full analysis** — after both runs above complete:
-   ```
-   python experiments/analysis.py --rqs all \
-     --input results/benchmark_judge_full.json \
-     --optimizer-input results/optimizer_results_v2.json
-   ```
+**Scale:** 7 models × 4 tasks × 7 levels × 20 examples = 3,920 API calls
 
-4. **Write paper** — COLM 2026 deadline: Mar 31
+**Execution plan (Option B — non-Groq first):**
+| Day | Models | Status |
+|-----|--------|--------|
+| Day 1 | gpt-4o-mini, claude-haiku, gemini-flash | ⏳ Not started |
+| Day 2 | llama-3.1-8b | ⏳ Pending |
+| Day 3 | llama-3.3-70b | ⏳ Pending |
+| Day 4 | qwen3-32b | ⏳ Pending |
+| Day 5 | kimi-k2 | ⏳ Pending |
+
+**Day 1 run command:**
+```bash
+nohup python experiments/saturation_benchmark.py \
+    --models gpt-4o-mini claude-haiku --examples 20 --delay 1.5 \
+    --output results/saturation_results.json > /tmp/saturation_day1.log 2>&1 &
+
+nohup python experiments/saturation_benchmark.py \
+    --models gemini-flash --examples 20 --delay 4.0 \
+    --output results/saturation_results.json --resume > /tmp/saturation_day1_gemini.log 2>&1 &
+```
 
 ---
 
-*Last updated: 2026-02-27*
+## Next Steps (in order)
+
+1. **Implement saturation_analysis.py** (Task 7.3) — curve fitting + figures
+2. **Run Day 1** — gpt-4o-mini, claude-haiku, gemini-flash (1,680 calls, no quota risk)
+3. **Run Days 2–5** — one Groq model per day (560 calls each)
+4. **Write paper** — COLM 2026 deadline: Mar 31 (28 days away)
+
+---
+
+*Last updated: 2026-03-03*
