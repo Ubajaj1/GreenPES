@@ -23,6 +23,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / '.env')
@@ -33,7 +34,10 @@ from greenprompt.llm import (
     LLMProvider, OpenAIProvider, AnthropicProvider,
     GeminiProvider, GroqProvider, MockProvider,
 )
-from greenprompt.evaluators import get_evaluator, InstructionFollowingEvaluator
+from greenprompt.evaluators import (
+    get_evaluator, InstructionFollowingEvaluator,
+    LLMJudgeEvaluator,
+)
 from experiments.saturation_prompts import (
     SATURATION_TEMPLATES, format_prompt, NUM_LEVELS,
 )
@@ -97,6 +101,8 @@ def run_saturation_benchmark(
     output_path: str = 'results/saturation_results.json',
     delay_between_calls: float = 2.0,
     resume: bool = False,
+    evaluator_type: str = 'heuristic',
+    judge_provider: 'Optional[LLMProvider]' = None,
 ) -> list[dict]:
 
     results, done = _load_existing(output_path, resume)
@@ -123,7 +129,11 @@ def run_saturation_benchmark(
                     try:
                         response = provider.generate(prompt, max_tokens=512)
 
-                        if task == 'instruction_following':
+                        if evaluator_type == 'llm_judge' and judge_provider is not None:
+                            evaluator = LLMJudgeEvaluator(
+                                judge_provider=judge_provider, task_type=task
+                            )
+                        elif task == 'instruction_following':
                             evaluator = InstructionFollowingEvaluator(
                                 constraints=example.get('constraints', [])
                             )
@@ -135,6 +145,12 @@ def run_saturation_benchmark(
                             example.get('ground_truth'),
                         )
 
+                        judge_scores = (
+                            evaluator.last_scores
+                            if hasattr(evaluator, 'last_scores')
+                            else None
+                        )
+
                         record = {
                             'model':         model_name,
                             'task':          task,
@@ -142,10 +158,13 @@ def run_saturation_benchmark(
                             'example_id':    ex_idx,
                             'prompt_tokens': response.input_tokens,
                             'output_tokens': response.output_tokens,
+                            'response_text': response.text,
                             'quality':       quality,
                             'completed':     completed,
                             'timestamp':     datetime.now().isoformat(),
                         }
+                        if judge_scores is not None:
+                            record['judge_scores'] = judge_scores
                         print(f"{label} quality={quality:.3f} tokens={response.input_tokens}")
 
                     except Exception as e:
@@ -174,21 +193,40 @@ def run_saturation_benchmark(
 
 def main():
     parser = argparse.ArgumentParser(description='Saturation benchmark runner')
-    parser.add_argument('--models',   nargs='+', default=list(MODEL_CONFIGS.keys()),
+    parser.add_argument('--models',      nargs='+', default=list(MODEL_CONFIGS.keys()),
                         choices=list(MODEL_CONFIGS.keys()))
-    parser.add_argument('--tasks',    nargs='+', default=TASKS, choices=TASKS)
-    parser.add_argument('--examples', type=int,  default=20)
-    parser.add_argument('--output',   default='results/saturation_results.json')
-    parser.add_argument('--delay',    type=float, default=2.0)
-    parser.add_argument('--resume',   action='store_true')
+    parser.add_argument('--tasks',       nargs='+', default=TASKS, choices=TASKS)
+    parser.add_argument('--examples',    type=int,  default=20)
+    parser.add_argument('--output',      default='results/saturation_results.json')
+    parser.add_argument('--delay',       type=float, default=2.0)
+    parser.add_argument('--resume',      action='store_true')
+    parser.add_argument('--evaluator',   default='heuristic',
+                        choices=['heuristic', 'llm_judge'])
+    parser.add_argument('--judge-model', default='gpt-4o-mini',
+                        help='Model to use as LLM judge (default: gpt-4o-mini)')
     args = parser.parse_args()
+
+    # Resolve judge provider if needed
+    judge_provider = None
+    if args.evaluator == 'llm_judge':
+        judge_model = args.judge_model
+        if judge_model in MODEL_CONFIGS:
+            _, judge_provider = get_provider(judge_model)
+        else:
+            openai_key = os.environ.get('OPENAI_API_KEY')
+            if not openai_key:
+                print("Error: --evaluator llm_judge requires OPENAI_API_KEY")
+                sys.exit(1)
+            judge_provider = OpenAIProvider(api_key=openai_key, model=judge_model)
+        print(f"Judge model: {args.judge_model}")
 
     providers = [get_provider(m) for m in args.models]
     total = len(args.models) * len(args.tasks) * NUM_LEVELS * args.examples
-    print(f"Models: {args.models}")
-    print(f"Tasks:  {args.tasks}")
-    print(f"Levels: {NUM_LEVELS} per task")
-    print(f"Total:  {total} experiments\n")
+    print(f"Models:    {args.models}")
+    print(f"Tasks:     {args.tasks}")
+    print(f"Levels:    {NUM_LEVELS} per task")
+    print(f"Evaluator: {args.evaluator}")
+    print(f"Total:     {total} experiments\n")
 
     run_saturation_benchmark(
         providers=providers,
@@ -197,6 +235,8 @@ def main():
         output_path=args.output,
         delay_between_calls=args.delay,
         resume=args.resume,
+        evaluator_type=args.evaluator,
+        judge_provider=judge_provider,
     )
 
 

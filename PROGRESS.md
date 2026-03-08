@@ -202,45 +202,48 @@ Run on `benchmark_judge_full.json` (4032 records, all models complete). Updated 
 
 ---
 
-## Phase 7: Saturation Experiment (NEW — 2026-03-03)
+## Phase 7: Saturation Experiment ✅ COMPLETE — 2026-03-08
 
-Controlled experiment varying prompt length (7 additive levels) per task, holding content type constant. Tests the saturation hypothesis: quality plateaus logarithmically at task-specific token thresholds.
+Controlled experiment varying prompt length (7 additive levels) per task, holding content type constant. Tests the saturation hypothesis: quality plateaus at task-specific token thresholds.
 
 - [x] Task 7.1: `experiments/saturation_prompts.py` — 7-level additive templates × 4 tasks (28 templates total)
-- [x] Task 7.2: `experiments/saturation_benchmark.py` — runner with --resume, heuristic eval, 7 models
-- [ ] Task 7.3: `experiments/saturation_analysis.py` — curve fitting, saturation points, 2 figures
+- [x] Task 7.2: `experiments/saturation_benchmark.py` — upgraded with `--evaluator llm_judge`, `--judge-model`, saves `response_text` + `judge_scores`
+- [x] Task 7.3: `experiments/saturation_analysis.py` — logarithmic/sigmoid curve fitting, saturation points, 2 figures
 
 **Scale:** 7 models × 4 tasks × 7 levels × 20 examples = 3,920 API calls
 
-**Execution plan (Option B — non-Groq first):**
-| Day | Models | Status |
-|-----|--------|--------|
-| Day 1 | gpt-4o-mini, claude-haiku, gemini-flash | ⏳ Not started |
-| Day 2 | llama-3.1-8b | ⏳ Pending |
-| Day 3 | llama-3.3-70b | ⏳ Pending |
-| Day 4 | qwen3-32b | ⏳ Pending |
-| Day 5 | kimi-k2 | ⏳ Pending |
+### Run A: Heuristic evaluation — `results/saturation_results.json` ✅ COMPLETE
+- **3,914 / 3,920 records** (99.8%) — heuristic quality scores
+- Mean R² = 0.427 (classification strong, instruction-following near R²=0)
 
-**Day 1 run command:**
-```bash
-nohup python experiments/saturation_benchmark.py \
-    --models gpt-4o-mini claude-haiku --examples 20 --delay 1.5 \
-    --output results/saturation_results.json > /tmp/saturation_day1.log 2>&1 &
+### Run B: LLM Judge evaluation — `results/saturation_results_judge.json` ✅ COMPLETE
+- **3,920 / 3,920 records** (100%, 16 errors retried) — gpt-4o-mini judge
+- Mean R² = 0.514 — significantly better; instruction following now shows real signal
 
-nohup python experiments/saturation_benchmark.py \
-    --models gemini-flash --examples 20 --delay 4.0 \
-    --output results/saturation_results.json --resume > /tmp/saturation_day1_gemini.log 2>&1 &
-```
+**Key saturation findings (LLM judge, 95% of asymptote threshold):**
+
+| Task | Saturation range | Best fit |
+|------|-----------------|----------|
+| QA | 8–43 tokens | Logarithmic; stronger models saturate earlier |
+| Summarization | 69–104 tokens | Mixed log/sigmoid |
+| Classification | 38–164 tokens | Sigmoid (R²=0.65–0.98, strongest curves) |
+| Instruction Following | 15–112 tokens | Log/sigmoid; smaller models need more tokens |
+
+**Figures:** `results/saturation_judge/figures/`
+- `fig_sat1_scaling_curves.png` — quality vs. tokens per task × model
+- `fig_sat2_saturation_points.png` — saturation token count heatmap
+
+**Summary CSV:** `results/saturation_judge/saturation_summary.csv`
 
 ---
 
 ## Next Steps (in order)
 
-1. **Implement saturation_analysis.py** (Task 7.3) — curve fitting + figures
-2. **Run Day 1** — gpt-4o-mini, claude-haiku, gemini-flash (1,680 calls, no quota risk)
-3. **Run Days 2–5** — one Groq model per day (560 calls each)
-4. **Write paper** — COLM 2026 deadline: Mar 31 (28 days away)
+1. **Write paper** — COLM 2026 deadline: Mar 31 (23 days away)
+   - Main contribution: saturation experiment (Phase 7, LLM judge results)
+   - Supporting: GreenPES metric, benchmark results (RQ1–RQ9)
+2. **Strengthen analysis** (optional): add confidence intervals on saturation points, F-tests for curve vs. flat-line significance
 
 ---
 
-*Last updated: 2026-03-03*
+*Last updated: 2026-03-08*
