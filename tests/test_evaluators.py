@@ -6,6 +6,7 @@ from greenprompt.evaluators import (
     ClassificationEvaluator,
     InstructionFollowingEvaluator,
     MathReasoningEvaluator,
+    ProductExtractionEvaluator,
     LLMJudgeEvaluator,
     get_evaluator,
     get_judge_evaluator,
@@ -349,6 +350,91 @@ class TestMathReasoningEvaluator:
         quality, completed = ev.evaluate("0.75", ground_truth="0.75")
         assert quality == 1.0
         assert completed is True
+
+
+# ── ProductExtractionEvaluator ────────────────────────────────────────────────
+
+class TestProductExtractionEvaluator:
+
+    GROUND_TRUTH = '{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "Sony", "category": "headphones"}'
+
+    def test_perfect_json_match(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "Sony", "category": "headphones"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 1.0
+        assert completed is True
+
+    def test_json_with_dollar_sign_in_price(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "Sony WH-1000XM5", "price": "$349.99", "brand": "Sony", "category": "headphones"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 1.0
+        assert completed is True
+
+    def test_case_insensitive_brand(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "sony", "category": "headphones"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 1.0
+
+    def test_partial_match_three_of_four(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "Sony", "category": "electronics"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 0.75
+        assert completed is True
+
+    def test_half_match(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "WH-1000XM5", "price": "999.99", "brand": "Sony", "category": "audio"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        # name: "WH-1000XM5" is substring of "Sony WH-1000XM5" → match
+        # price: wrong → no match
+        # brand: match
+        # category: wrong → no match
+        assert quality == 0.5
+        assert completed is True
+
+    def test_zero_match(self):
+        ev = ProductExtractionEvaluator()
+        response = '{"name": "iPhone 15", "price": "999", "brand": "Apple", "category": "phone"}'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 0.0
+        assert completed is False
+
+    def test_empty_response(self):
+        ev = ProductExtractionEvaluator()
+        quality, completed = ev.evaluate("", ground_truth=self.GROUND_TRUTH)
+        assert quality == 0.0
+        assert completed is False
+
+    def test_non_json_key_value_fallback(self):
+        ev = ProductExtractionEvaluator()
+        response = "name: Sony WH-1000XM5\nprice: 349.99\nbrand: Sony\ncategory: headphones"
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 1.0
+        assert completed is True
+
+    def test_json_in_markdown_code_block(self):
+        ev = ProductExtractionEvaluator()
+        response = '```json\n{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "Sony", "category": "headphones"}\n```'
+        quality, completed = ev.evaluate(response, ground_truth=self.GROUND_TRUTH)
+        assert quality == 1.0
+        assert completed is True
+
+    def test_name_substring_containment(self):
+        ev = ProductExtractionEvaluator()
+        gt = '{"name": "AirPods Pro", "price": "249", "brand": "Apple", "category": "earbuds"}'
+        response = '{"name": "Apple AirPods Pro 2nd Gen", "price": "249", "brand": "Apple", "category": "earbuds"}'
+        quality, completed = ev.evaluate(response, ground_truth=gt)
+        assert quality == 1.0
+
+    def test_no_ground_truth(self):
+        ev = ProductExtractionEvaluator()
+        quality, completed = ev.evaluate("some response", ground_truth=None)
+        assert quality == 0.0
+        assert completed is False
 
 
 # ── get_evaluator factory ─────────────────────────────────────────────────────

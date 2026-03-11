@@ -221,6 +221,75 @@ class MathReasoningEvaluator(QualityEvaluator):
         return 0.0, False
 
 
+class ProductExtractionEvaluator(QualityEvaluator):
+    """Evaluate product info extraction by comparing 4 fields against ground truth."""
+
+    FIELDS = ['name', 'price', 'brand', 'category']
+
+    def _parse_response(self, text: str) -> Optional[dict]:
+        """Try JSON parse, then fallback to key: value line parsing."""
+        cleaned = re.sub(r'```(?:json)?\s*', '', text).strip().rstrip('`')
+
+        match = re.search(r'\{[^}]+\}', cleaned, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+
+        result = {}
+        for line in text.split('\n'):
+            for field in self.FIELDS:
+                pattern = rf'{field}\s*:\s*(.+)'
+                m = re.match(pattern, line.strip(), re.IGNORECASE)
+                if m:
+                    result[field] = m.group(1).strip()
+        return result if result else None
+
+    def _normalize_price(self, price_str: str) -> str:
+        cleaned = re.sub(r'[$,]', '', price_str.strip())
+        try:
+            num = float(cleaned)
+            if num == int(num):
+                return str(int(num))
+            return str(num)
+        except ValueError:
+            return cleaned.lower()
+
+    def _match_field(self, field: str, extracted: str, expected: str) -> bool:
+        if field == 'price':
+            return self._normalize_price(extracted) == self._normalize_price(expected)
+        elif field == 'name':
+            return (expected.lower() in extracted.lower() or
+                    extracted.lower() in expected.lower())
+        else:
+            return extracted.lower().strip() == expected.lower().strip()
+
+    def evaluate(self, response: str, ground_truth: Optional[str] = None) -> tuple[float, bool]:
+        response = response.strip()
+        if not response or ground_truth is None:
+            return 0.0, False
+
+        try:
+            gt_dict = json.loads(ground_truth)
+        except (json.JSONDecodeError, TypeError):
+            return 0.0, False
+
+        extracted = self._parse_response(response)
+        if not extracted:
+            return 0.0, False
+
+        matches = 0
+        for field in self.FIELDS:
+            if field in extracted and field in gt_dict:
+                if self._match_field(field, str(extracted[field]), str(gt_dict[field])):
+                    matches += 1
+
+        quality = matches / len(self.FIELDS)
+        completed = quality >= 0.5
+        return quality, completed
+
+
 def get_evaluator(task_type: str) -> QualityEvaluator:
     """Get the appropriate evaluator for a task type."""
     evaluators = {
@@ -231,6 +300,7 @@ def get_evaluator(task_type: str) -> QualityEvaluator:
         'classification': ClassificationEvaluator(),
         'instruction_following': InstructionFollowingEvaluator(),
         'math_reasoning': MathReasoningEvaluator(),
+        'product_extraction': ProductExtractionEvaluator(),
     }
     return evaluators.get(task_type.lower(), QAEvaluator())
 
