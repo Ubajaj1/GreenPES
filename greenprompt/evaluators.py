@@ -178,6 +178,49 @@ class InstructionFollowingEvaluator(QualityEvaluator):
         return quality, completed
 
 
+class MathReasoningEvaluator(QualityEvaluator):
+    """Evaluate math reasoning by extracting the final number and comparing to ground truth."""
+
+    _NUMBER_RE = re.compile(r'-?\d[\d,]*\.?\d*')
+
+    def _extract_last_number(self, text: str) -> Optional[str]:
+        """Extract the last number from text, normalized."""
+        cleaned = re.sub(r'[$%]', '', text)
+        matches = self._NUMBER_RE.findall(cleaned)
+        if not matches:
+            return None
+        raw = matches[-1].replace(',', '')
+        try:
+            num = float(raw)
+            if num == int(num):
+                return str(int(num))
+            return str(num)
+        except ValueError:
+            return None
+
+    def evaluate(self, response: str, ground_truth: Optional[str] = None) -> tuple[float, bool]:
+        response = response.strip()
+        if not response or ground_truth is None:
+            return 0.0, False
+
+        extracted = self._extract_last_number(response)
+        if extracted is None:
+            return 0.0, False
+
+        try:
+            gt_num = float(ground_truth.replace(',', ''))
+            if gt_num == int(gt_num):
+                gt_normalized = str(int(gt_num))
+            else:
+                gt_normalized = str(gt_num)
+        except ValueError:
+            return 0.0, False
+
+        if extracted == gt_normalized:
+            return 1.0, True
+        return 0.0, False
+
+
 def get_evaluator(task_type: str) -> QualityEvaluator:
     """Get the appropriate evaluator for a task type."""
     evaluators = {
@@ -187,6 +230,7 @@ def get_evaluator(task_type: str) -> QualityEvaluator:
         'summary': SummarizationEvaluator(),
         'classification': ClassificationEvaluator(),
         'instruction_following': InstructionFollowingEvaluator(),
+        'math_reasoning': MathReasoningEvaluator(),
     }
     return evaluators.get(task_type.lower(), QAEvaluator())
 

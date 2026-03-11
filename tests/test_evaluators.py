@@ -5,6 +5,7 @@ from greenprompt.evaluators import (
     SummarizationEvaluator,
     ClassificationEvaluator,
     InstructionFollowingEvaluator,
+    MathReasoningEvaluator,
     LLMJudgeEvaluator,
     get_evaluator,
     get_judge_evaluator,
@@ -268,6 +269,86 @@ class TestInstructionFollowingEvaluator:
         response = "- Alpha\n- Beta"
         quality, completed = ev.evaluate(response)
         assert 0.0 < quality < 1.0
+
+
+# ── MathReasoningEvaluator ───────────────────────────────────────────────────
+
+class TestMathReasoningEvaluator:
+
+    def test_exact_number_match(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("42", ground_truth="42")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_number_in_sentence(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The answer is 42.", ground_truth="42")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_decimal_match(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The total cost is $13.50", ground_truth="13.50")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_trailing_zero_normalization(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("60.0", ground_truth="60")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_comma_in_number(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The population is 1,000,000", ground_truth="1000000")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_wrong_answer(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The answer is 43", ground_truth="42")
+        assert quality == 0.0
+        assert completed is False
+
+    def test_no_number_in_response(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("I cannot solve this problem", ground_truth="42")
+        assert quality == 0.0
+        assert completed is False
+
+    def test_empty_response(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("", ground_truth="42")
+        assert quality == 0.0
+        assert completed is False
+
+    def test_multiple_numbers_uses_last(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate(
+            "3 * 2 = 6, then 6 + 7.5 = 13.5",
+            ground_truth="13.5",
+        )
+        assert quality == 1.0
+        assert completed is True
+
+    def test_percentage_answer(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The answer is 25%", ground_truth="25")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_negative_number(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("The temperature is -5 degrees", ground_truth="-5")
+        assert quality == 1.0
+        assert completed is True
+
+    def test_fraction_as_decimal(self):
+        ev = MathReasoningEvaluator()
+        quality, completed = ev.evaluate("0.75", ground_truth="0.75")
+        assert quality == 1.0
+        assert completed is True
 
 
 # ── get_evaluator factory ─────────────────────────────────────────────────────
