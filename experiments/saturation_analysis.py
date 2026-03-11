@@ -24,16 +24,18 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.optimize import curve_fit
-from scipy.stats import pearsonr  # noqa: F401 — used in print_correlation_stats
+from scipy.stats import pearsonr, f as f_dist  # noqa: F401 — used in print_correlation_stats
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-TASKS = ['qa', 'summarization', 'classification', 'instruction_following']
+TASKS = ['qa', 'summarization', 'classification', 'instruction_following', 'math_reasoning', 'product_extraction']
 TASK_LABELS = {
     'qa': 'QA',
     'summarization': 'Summarization',
     'classification': 'Classification',
     'instruction_following': 'Instruction Following',
+    'math_reasoning': 'Math Reasoning',
+    'product_extraction': 'Product Extraction',
 }
 
 MODEL_ORDER = [
@@ -146,6 +148,201 @@ def fit_best_curve(tokens: np.ndarray, quality: np.ndarray) -> dict:
     }
 
 
+# ── Null model F-test ─────────────────────────────────────────────────────────
+
+def null_model_ftest(tokens: np.ndarray, quality: np.ndarray, fit: dict) -> dict:
+    """
+    Test whether the fitted curve is significantly better than a flat line (null model).
+
+    Null model: quality = mean (1 parameter).
+    Fitted model: log (3 params) or sigmoid (4 params).
+
+    Returns dict with ftest_F, ftest_p, ftest_significant.
+    """
+    n = len(quality)
+    if fit.get('params') is None or fit.get('model_type') == 'none':
+        return {'ftest_F': np.nan, 'ftest_p': np.nan, 'ftest_significant': False}
+
+    # Null model residuals
+    ss_null = float(np.sum((quality - quality.mean()) ** 2))
+
+    # Fitted model residuals
+    if fit['model_type'] == 'logarithmic':
+        params = fit['params']
+        pred = log_curve(tokens, *params)
+        p_full = 3
+    else:
+        params = fit['params']
+        pred = sigmoid_curve(tokens, *params)
+        p_full = 4
+
+    ss_fit = float(np.sum((quality - pred) ** 2))
+    p_null = 1  # just the mean
+
+    dfn = p_full - p_null  # numerator degrees of freedom
+    dfd = n - p_full       # denominator degrees of freedom
+
+    if dfd <= 0 or ss_fit <= 0 or ss_null <= ss_fit:
+        return {'ftest_F': np.nan, 'ftest_p': np.nan, 'ftest_significant': False}
+
+    f_stat = ((ss_null - ss_fit) / dfn) / (ss_fit / dfd)
+    p_value = float(f_dist.sf(f_stat, dfn, dfd))
+
+    return {
+        'ftest_F': float(f_stat),
+        'ftest_p': p_value,
+        'ftest_significant': p_value < 0.05,
+    }
+
+
+# ── Bootstrap confidence intervals ───────────────────────────────────────────
+
+def bootstrap_saturation_ci(
+    df_raw: pd.DataFrame,
+    model: str,
+    task: str,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """
+    Bootstrap CIs on saturation point by resampling example indices.
+
+    Resamples the same 20 example indices (with replacement) and applies them
+    across all 7 levels, preserving the paired structure. Then re-aggregates,
+    re-fits, and extracts the saturation point.
+
+    Returns dict with sat_median, sat_ci_lower, sat_ci_upper, bootstrap_fit_rate.
+    """
+    sub = df_raw[(df_raw['model'] == model) & (df_raw['task'] == task)].copy()
+    if sub.empty:
+        return {'sat_median': np.nan, 'sat_ci_lower': np.nan,
+                'sat_ci_upper': np.nan, 'bootstrap_fit_rate': 0.0}
+
+    example_ids = sorted(sub['example_id'].unique())
+    n_examples = len(example_ids)
+    levels = sorted(sub['level'].unique())
+
+    # Pre-index for fast lookup: (level, example_id) -> (quality, prompt_tokens)
+    sub_indexed = sub.set_index(['level', 'example_id'])
+
+    rng = np.random.default_rng(seed)
+    sat_points = []
+
+    for _ in range(n_bootstrap):
+        # Resample example indices with replacement — same set for all levels
+        boot_ids = rng.choice(example_ids, size=n_examples, replace=True)
+
+        # Build aggregated points per level
+        level_tokens = []
+        level_quality = []
+        valid = True
+
+        for level in levels:
+            qualities = []
+            tokens = []
+            for eid in boot_ids:
+                try:
+                    row = sub_indexed.loc[(level, eid)]
+                    # Handle potential duplicate index (same example_id at same level)
+                    if isinstance(row, pd.DataFrame):
+                        row = row.iloc[0]
+                    qualities.append(row['quality'])
+                    tokens.append(row['prompt_tokens'])
+                except KeyError:
+                    continue
+
+            if len(qualities) < 5:  # too few records at this level
+                valid = False
+                break
+
+            level_quality.append(np.mean(qualities))
+            level_tokens.append(np.mean(tokens))
+
+        if not valid or len(level_quality) < 4:
+            continue
+
+        tok_arr = np.array(level_tokens, dtype=float)
+        qual_arr = np.array(level_quality, dtype=float)
+
+        fit = fit_best_curve(tok_arr, qual_arr)
+        if fit['params'] is not None and not np.isnan(fit.get('saturation_tokens', np.nan)):
+            sat_points.append(fit['saturation_tokens'])
+
+    if not sat_points:
+        return {'sat_median': np.nan, 'sat_ci_lower': np.nan,
+                'sat_ci_upper': np.nan, 'bootstrap_fit_rate': 0.0}
+
+    sat_arr = np.array(sat_points)
+    return {
+        'sat_median': float(np.median(sat_arr)),
+        'sat_ci_lower': float(np.percentile(sat_arr, 2.5)),
+        'sat_ci_upper': float(np.percentile(sat_arr, 97.5)),
+        'bootstrap_fit_rate': len(sat_points) / n_bootstrap,
+    }
+
+
+# ── Figure 3: Forest plot with CIs ──────────────────────────────────────────
+
+TASK_COLORS = {
+    'qa': '#377eb8',
+    'summarization': '#4daf4a',
+    'classification': '#e41a1c',
+    'instruction_following': '#ff7f00',
+    'math_reasoning': '#984ea3',
+    'product_extraction': '#a65628',
+}
+
+
+def plot_forest(summary: pd.DataFrame, out_path: str) -> None:
+    """
+    Forest plot: one row per (model, task) showing saturation point + 95% CI.
+    Only includes pairs where F-test is significant.
+    """
+    sig = summary[summary['ftest_significant'] == True].copy()
+    if sig.empty:
+        print("  No significant pairs for forest plot — skipping.")
+        return
+
+    sig = sig.sort_values(['task', 'saturation_tokens'])
+    sig['label'] = sig['model'] + ' — ' + sig['task'].map(TASK_LABELS)
+
+    fig, ax = plt.subplots(figsize=(10, max(4, len(sig) * 0.4)))
+
+    y_positions = range(len(sig))
+    for i, (_, row) in enumerate(sig.iterrows()):
+        color = TASK_COLORS.get(row['task'], '#333')
+        ci_lo = row.get('sat_ci_lower', np.nan)
+        ci_hi = row.get('sat_ci_upper', np.nan)
+        sat = row['saturation_tokens']
+
+        # Point estimate
+        ax.plot(sat, i, 'o', color=color, markersize=7, zorder=3)
+
+        # CI whiskers
+        if not np.isnan(ci_lo) and not np.isnan(ci_hi):
+            ax.plot([ci_lo, ci_hi], [i, i], '-', color=color,
+                    linewidth=2, alpha=0.6, zorder=2)
+
+    ax.set_yticks(list(y_positions))
+    ax.set_yticklabels(sig['label'].tolist(), fontsize=8)
+    ax.set_xlabel('Saturation Point (tokens)', fontsize=10)
+    ax.set_title('Saturation Points with 95% Bootstrap CI\n(only pairs where curve significantly beats flat line, F-test p<0.05)',
+                 fontsize=11, fontweight='bold')
+    ax.grid(True, axis='x', alpha=0.3)
+
+    # Legend for task colors
+    from matplotlib.lines import Line2D
+    legend_handles = [Line2D([0], [0], marker='o', color=c, linestyle='', markersize=7, label=TASK_LABELS[t])
+                      for t, c in TASK_COLORS.items()]
+    ax.legend(handles=legend_handles, loc='lower right', fontsize=8)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {out_path}")
+
+
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_data(path: str) -> pd.DataFrame:
@@ -182,15 +379,21 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
 
 def plot_scaling_curves(agg: pd.DataFrame, fits: dict, out_path: str) -> None:
     """
-    4-subplot grid. Each subplot = one task.
+    Subplot grid. Each subplot = one task.
     One line per model (aggregated mean across examples); fitted curve overlaid.
     """
     models_present = [m for m in MODEL_ORDER if m in agg['model'].unique()]
+    tasks_present = [t for t in TASKS if t in agg['task'].unique()]
+    n_tasks = len(tasks_present)
+    ncols = min(n_tasks, 3)
+    nrows = (n_tasks + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows))
+    if n_tasks == 1:
+        axes = [axes]
+    else:
+        axes = np.array(axes).flatten()
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
-    axes = axes.flatten()
-
-    for ax_idx, task in enumerate(TASKS):
+    for ax_idx, task in enumerate(tasks_present):
         ax = axes[ax_idx]
         task_data = agg[agg['task'] == task]
 
@@ -252,10 +455,11 @@ def plot_saturation_heatmap(fits: dict, models: list[str], out_path: str) -> Non
     """
     Heatmap: rows = models, columns = tasks, values = saturation token count.
     """
-    task_labels = [TASK_LABELS[t] for t in TASKS]
-    sat_matrix = np.full((len(models), len(TASKS)), np.nan)
+    tasks_present = [t for t in TASKS if any((m, t) in fits for m in models)]
+    task_labels = [TASK_LABELS[t] for t in tasks_present]
+    sat_matrix = np.full((len(models), len(tasks_present)), np.nan)
     for i, model in enumerate(models):
-        for j, task in enumerate(TASKS):
+        for j, task in enumerate(tasks_present):
             key = (model, task)
             if key in fits and not np.isnan(fits[key].get('saturation_tokens', np.nan)):
                 sat_matrix[i, j] = fits[key]['saturation_tokens']
@@ -269,14 +473,14 @@ def plot_saturation_heatmap(fits: dict, models: list[str], out_path: str) -> Non
 
     # Annotate cells
     for i in range(len(models)):
-        for j in range(len(TASKS)):
+        for j in range(len(tasks_present)):
             val = sat_matrix[i, j]
             txt = f'{val:.0f}' if not np.isnan(val) else 'N/A'
             color = 'white' if (not np.isnan(val) and val > masked.max() * 0.6) else 'black'
             ax.text(j, i, txt, ha='center', va='center', fontsize=9,
                     color=color, fontweight='bold')
 
-    ax.set_xticks(range(len(TASKS)))
+    ax.set_xticks(range(len(tasks_present)))
     ax.set_xticklabels(task_labels, fontsize=10)
     ax.set_yticks(range(len(models)))
     ax.set_yticklabels(models, fontsize=10)
@@ -296,12 +500,15 @@ def plot_saturation_heatmap(fits: dict, models: list[str], out_path: str) -> Non
 
 # ── Stats summary ─────────────────────────────────────────────────────────────
 
-def build_summary(fits: dict, models: list[str]) -> pd.DataFrame:
+def build_summary(fits: dict, ftests: dict, boot_cis: dict, models: list[str], tasks: list[str] | None = None) -> pd.DataFrame:
+    tasks_to_use = tasks if tasks is not None else TASKS
     rows = []
     for model in models:
-        for task in TASKS:
+        for task in tasks_to_use:
             key = (model, task)
             fit = fits.get(key, {})
+            ft = ftests.get(key, {})
+            ci = boot_cis.get(key, {})
             rows.append({
                 'model': model,
                 'task': task,
@@ -310,6 +517,13 @@ def build_summary(fits: dict, models: list[str]) -> pd.DataFrame:
                 'rmse': fit.get('rmse', np.nan),
                 'saturation_tokens': fit.get('saturation_tokens', np.nan),
                 'asymptote': fit.get('asymptote', np.nan),
+                'ftest_F': ft.get('ftest_F', np.nan),
+                'ftest_p': ft.get('ftest_p', np.nan),
+                'ftest_significant': ft.get('ftest_significant', False),
+                'sat_median': ci.get('sat_median', np.nan),
+                'sat_ci_lower': ci.get('sat_ci_lower', np.nan),
+                'sat_ci_upper': ci.get('sat_ci_upper', np.nan),
+                'bootstrap_fit_rate': ci.get('bootstrap_fit_rate', 0.0),
             })
     return pd.DataFrame(rows)
 
@@ -317,8 +531,9 @@ def build_summary(fits: dict, models: list[str]) -> pd.DataFrame:
 # ── Correlation: level vs quality (by task) ───────────────────────────────────
 
 def print_correlation_stats(df: pd.DataFrame) -> None:
+    tasks_in_data = [t for t in TASKS if t in df['task'].unique()]
     print("\n── Pearson r (prompt_tokens vs quality) by task ──")
-    for task in TASKS:
+    for task in tasks_in_data:
         td = df[df['task'] == task]
         if len(td) < 3:
             continue
@@ -345,6 +560,7 @@ def main():
           f"levels {sorted(df['level'].unique())}")
 
     models_present = [m for m in MODEL_ORDER if m in df['model'].unique()]
+    tasks_present = [t for t in TASKS if t in df['task'].unique()]
     print(f"  Models: {models_present}")
 
     # Aggregate to level-means per (model, task)
@@ -354,7 +570,7 @@ def main():
     print("\nFitting curves …")
     fits: dict = {}
     for model in models_present:
-        for task in TASKS:
+        for task in tasks_present:
             sub = agg[(agg['model'] == model) & (agg['task'] == task)]
             if len(sub) < 3:
                 fits[(model, task)] = {'model_type': 'none', 'params': None,
@@ -371,29 +587,80 @@ def main():
     # Correlation stats
     print_correlation_stats(df)
 
-    # Figure 1: scaling curves
+    # ── Fix #1: Null model F-tests ──────────────────────────────────────────
+    print("\nRunning null model F-tests …")
+    ftests: dict = {}
+    for model in models_present:
+        for task in tasks_present:
+            key = (model, task)
+            sub = agg[(agg['model'] == model) & (agg['task'] == task)]
+            if len(sub) < 3 or fits[key].get('params') is None:
+                ftests[key] = {'ftest_F': np.nan, 'ftest_p': np.nan, 'ftest_significant': False}
+                continue
+            tokens = sub['mean_tokens'].values.astype(float)
+            quality = sub['mean_quality'].values.astype(float)
+            ft = null_model_ftest(tokens, quality, fits[key])
+            ftests[key] = ft
+            sig_str = "*** SIGNIFICANT" if ft['ftest_significant'] else "    not significant"
+            print(f"  {model:20s} | {task:22s} | F={ft['ftest_F']:7.2f}  p={ft['ftest_p']:.4f}  {sig_str}")
+
+    n_sig = sum(1 for v in ftests.values() if v.get('ftest_significant'))
+    print(f"  {n_sig}/{len(ftests)} pairs have significant curve fit (p<0.05)")
+
+    # ── Fix #3: Bootstrap confidence intervals ──────────────────────────────
+    print("\nRunning bootstrap CIs (1000 iterations per pair) …")
+    boot_cis: dict = {}
+    for model in models_present:
+        for task in tasks_present:
+            key = (model, task)
+            ci = bootstrap_saturation_ci(df, model, task, n_bootstrap=1000)
+            boot_cis[key] = ci
+            if not np.isnan(ci['sat_median']):
+                print(f"  {model:20s} | {task:22s} | "
+                      f"median={ci['sat_median']:6.1f}  "
+                      f"CI=[{ci['sat_ci_lower']:.1f}, {ci['sat_ci_upper']:.1f}]  "
+                      f"fit_rate={ci['bootstrap_fit_rate']:.1%}")
+            else:
+                print(f"  {model:20s} | {task:22s} | bootstrap failed")
+
+    # ── Figures ─────────────────────────────────────────────────────────────
     print("\nGenerating figures …")
+
+    # Figure 1: scaling curves (original)
     plot_scaling_curves(agg, fits,
                         os.path.join(fig_dir, 'fig_sat1_scaling_curves.png'))
 
-    # Figure 2: saturation heatmap
+    # Figure 2: saturation heatmap (original)
     plot_saturation_heatmap(fits, models_present,
                             os.path.join(fig_dir, 'fig_sat2_saturation_points.png'))
 
-    # Summary CSV
-    summary = build_summary(fits, models_present)
+    # Summary CSV (with F-test + bootstrap columns)
+    summary = build_summary(fits, ftests, boot_cis, models_present, tasks_present)
     csv_path = os.path.join(args.output_dir, 'saturation_summary.csv')
     summary.to_csv(csv_path, index=False)
     print(f"  Saved: {csv_path}")
 
-    # Print quick summary
+    # Figure 3: Forest plot with CIs (new)
+    plot_forest(summary, os.path.join(fig_dir, 'fig_sat3_forest_plot.png'))
+
+    # ── Print summary ───────────────────────────────────────────────────────
     print("\n── Saturation points (tokens) ──")
     pivot = summary.pivot(index='model', columns='task', values='saturation_tokens')
     pivot = pivot.reindex(models_present)
     print(pivot.to_string(float_format='{:.0f}'.format))
 
+    print("\n── F-test results ──")
+    for _, row in summary.iterrows():
+        sig = "✓" if row['ftest_significant'] else "✗"
+        ci_str = ""
+        if not np.isnan(row.get('sat_ci_lower', np.nan)):
+            ci_str = f"  CI=[{row['sat_ci_lower']:.0f}, {row['sat_ci_upper']:.0f}]"
+        print(f"  {sig} {row['model']:20s} | {row['task']:22s} | "
+              f"p={row['ftest_p']:.4f}  sat={row['saturation_tokens']:.0f}{ci_str}")
+
     r2_mean = summary['r2'].dropna().mean()
     print(f"\nMean R² across all fits: {r2_mean:.3f}")
+    print(f"Significant pairs: {n_sig}/{len(ftests)}")
     print("\nDone.")
 
 
