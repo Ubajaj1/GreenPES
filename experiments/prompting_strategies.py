@@ -723,6 +723,253 @@ BENCHMARK_EXAMPLES = {
             'ground_truth': None,
         },
     ],
+
+    # ── MATH REASONING ─────────────────────────────────────────────────────────
+    # Mixed difficulty: 10 easy (1-2 step arithmetic), 10 harder (2-3 step).
+    # ground_truth is the numerical answer as a string.
+    'math_reasoning': [
+        # ── easy (10) ──
+        {
+            'input': 'A store sells 3 apples at $2 each and 5 oranges at $1.50 each. What is the total cost?',
+            'ground_truth': '13.5',
+        },
+        {
+            'input': 'A rectangle has a length of 12 cm and a width of 5 cm. What is its area in square centimeters?',
+            'ground_truth': '60',
+        },
+        {
+            'input': 'A car drives 150 km in 3 hours. What is its average speed in km/h?',
+            'ground_truth': '50',
+        },
+        {
+            'input': 'A shirt originally costs $80. It is on sale for 25% off. What is the sale price in dollars?',
+            'ground_truth': '60',
+        },
+        {
+            'input': 'A baker makes 12 cupcakes per batch. How many cupcakes does she make in 7 batches?',
+            'ground_truth': '84',
+        },
+        {
+            'input': 'A bag contains 8 red marbles and 12 blue marbles. What fraction of the marbles are red? Express as a decimal.',
+            'ground_truth': '0.4',
+        },
+        {
+            'input': 'A movie starts at 2:45 PM and lasts 1 hour and 35 minutes. What time does it end? Give the answer as a number in 24-hour format (e.g., 16.33 for 4:20 PM).',
+            'ground_truth': '16.33',
+        },
+        {
+            'input': 'A classroom has 5 rows of desks with 6 desks in each row. If 4 desks are removed, how many desks remain?',
+            'ground_truth': '26',
+        },
+        {
+            'input': 'A water tank holds 500 liters. If 35 liters are used each day, how many full days will the water last?',
+            'ground_truth': '14',
+        },
+        {
+            'input': 'A pizza is cut into 8 equal slices. If 3 people each eat 2 slices, how many slices are left?',
+            'ground_truth': '2',
+        },
+        # ── harder (10) ──
+        {
+            'input': 'A train travels at 60 km/h for 2.5 hours, then at 80 km/h for 1.5 hours. What is the total distance traveled in km?',
+            'ground_truth': '270',
+        },
+        {
+            'input': 'If 3 workers can paint a house in 12 days, how many days would it take 4 workers to paint the same house?',
+            'ground_truth': '9',
+        },
+        {
+            'input': 'A shop buys a product for $40 and sells it for $56. What is the profit margin as a percentage?',
+            'ground_truth': '40',
+        },
+        {
+            'input': 'A cylindrical water tank has a radius of 3 meters and a height of 5 meters. What is its volume in cubic meters? Use pi = 3.14.',
+            'ground_truth': '141.3',
+        },
+        {
+            'input': 'A population of bacteria doubles every 4 hours. Starting with 500 bacteria, how many will there be after 12 hours?',
+            'ground_truth': '4000',
+        },
+        {
+            'input': 'Two cars start from the same point. One drives north at 40 km/h and the other drives east at 30 km/h. How far apart are they after 2 hours in km?',
+            'ground_truth': '100',
+        },
+        {
+            'input': 'A book has 450 pages. Maria reads 30 pages per day on weekdays and 50 pages per day on weekends. How many complete weeks does she need to finish the book?',
+            'ground_truth': '2',
+        },
+        {
+            'input': 'A mixture contains water and alcohol in the ratio 3:2. If the total volume is 750 ml, how many ml of alcohol are there?',
+            'ground_truth': '300',
+        },
+        {
+            'input': 'A ball is dropped from 200 meters. Each bounce reaches 60% of the previous height. What height does it reach after the third bounce in meters?',
+            'ground_truth': '43.2',
+        },
+        {
+            'input': 'An investment of $1000 earns 5% simple interest per year. What is the total amount after 3 years in dollars?',
+            'ground_truth': '1150',
+        },
+    ],
+
+    # ── PRODUCT EXTRACTION ─────────────────────────────────────────────────────
+    # E-commerce product listings. Extract: name, price, brand, category.
+    # ground_truth is a JSON string with 4 keys.
+    # 10 straightforward + 10 harder (price buried, brand implicit, ambiguous category).
+    'product_extraction': [
+        # ── straightforward (10) ──
+        {
+            'input': (
+                'The Sony WH-1000XM5 wireless noise-cancelling headphones deliver '
+                'exceptional audio quality with 30-hour battery life. Price: $349.99.'
+            ),
+            'ground_truth': '{"name": "Sony WH-1000XM5", "price": "349.99", "brand": "Sony", "category": "headphones"}',
+        },
+        {
+            'input': (
+                'Apple MacBook Air M3 laptop features a 13.6-inch Liquid Retina display, '
+                '8GB RAM, and 256GB SSD storage. Available for $1,099.00.'
+            ),
+            'ground_truth': '{"name": "Apple MacBook Air M3", "price": "1099", "brand": "Apple", "category": "laptop"}',
+        },
+        {
+            'input': (
+                'Samsung Galaxy S24 Ultra smartphone with 6.8-inch display, 200MP camera, '
+                'and 5000mAh battery. Retail price $1,299.99.'
+            ),
+            'ground_truth': '{"name": "Samsung Galaxy S24 Ultra", "price": "1299.99", "brand": "Samsung", "category": "smartphone"}',
+        },
+        {
+            'input': (
+                'Nike Air Max 270 running shoes offer superior cushioning and breathable mesh '
+                'upper. Available in multiple colorways. Price: $150.00.'
+            ),
+            'ground_truth': '{"name": "Nike Air Max 270", "price": "150", "brand": "Nike", "category": "shoes"}',
+        },
+        {
+            'input': (
+                'The Dyson V15 Detect cordless vacuum features laser dust detection and '
+                'powerful suction for deep cleaning. MSRP: $749.99.'
+            ),
+            'ground_truth': '{"name": "Dyson V15 Detect", "price": "749.99", "brand": "Dyson", "category": "vacuum"}',
+        },
+        {
+            'input': (
+                'Bose QuietComfort Earbuds II true wireless earphones with world-class '
+                'noise cancellation and CustomTune sound. Price: $279.00.'
+            ),
+            'ground_truth': '{"name": "Bose QuietComfort Earbuds II", "price": "279", "brand": "Bose", "category": "earbuds"}',
+        },
+        {
+            'input': (
+                'LG C3 65-inch OLED 4K Smart TV with Dolby Vision, Dolby Atmos, and '
+                'webOS 23. Currently priced at $1,499.99.'
+            ),
+            'ground_truth': '{"name": "LG C3 65-inch OLED 4K Smart TV", "price": "1499.99", "brand": "LG", "category": "television"}',
+        },
+        {
+            'input': (
+                'Canon EOS R6 Mark II mirrorless camera body with 24.2MP full-frame sensor '
+                'and advanced autofocus. Price: $2,499.00.'
+            ),
+            'ground_truth': '{"name": "Canon EOS R6 Mark II", "price": "2499", "brand": "Canon", "category": "camera"}',
+        },
+        {
+            'input': (
+                'The Kindle Paperwhite by Amazon features a 6.8-inch glare-free display '
+                'and adjustable warm light. Priced at $139.99.'
+            ),
+            'ground_truth': '{"name": "Kindle Paperwhite", "price": "139.99", "brand": "Amazon", "category": "e-reader"}',
+        },
+        {
+            'input': (
+                'Logitech MX Master 3S wireless mouse with 8K DPI sensor and quiet clicks. '
+                'Ergonomic design for productivity. Price: $99.99.'
+            ),
+            'ground_truth': '{"name": "Logitech MX Master 3S", "price": "99.99", "brand": "Logitech", "category": "mouse"}',
+        },
+        # ── harder (10) — price buried, brand implicit, ambiguous category ──
+        {
+            'input': (
+                'Experience premium sound with the new over-ear headphones from Sennheiser. '
+                'The Momentum 4 Wireless delivers up to 60 hours of playback. '
+                'Check it out for just two hundred and ninety-nine dollars and ninety-five cents at major retailers.'
+            ),
+            'ground_truth': '{"name": "Sennheiser Momentum 4 Wireless", "price": "299.95", "brand": "Sennheiser", "category": "headphones"}',
+        },
+        {
+            'input': (
+                'This 14-inch ultrabook weighs just 2.7 lbs and features an Intel Core i7 processor. '
+                'The ThinkPad X1 Carbon Gen 11 starts at $1,449 for the base configuration with '
+                '16GB memory and 512GB storage.'
+            ),
+            'ground_truth': '{"name": "ThinkPad X1 Carbon Gen 11", "price": "1449", "brand": "Lenovo", "category": "laptop"}',
+        },
+        {
+            'input': (
+                'Keep your drinks cold for 24 hours or hot for 12 with this insulated water bottle. '
+                'The 32oz Hydro Flask Wide Mouth is a customer favorite. Pick one up for $44.95.'
+            ),
+            'ground_truth': '{"name": "Hydro Flask Wide Mouth 32oz", "price": "44.95", "brand": "Hydro Flask", "category": "water bottle"}',
+        },
+        {
+            'input': (
+                'Upgrade your home office with a mechanical keyboard that types as good as it looks. '
+                'Cherry MX Brown switches, RGB backlighting, and a durable aluminum frame. '
+                'The Keychron Q1 Pro can be yours for USD 199.00 shipped.'
+            ),
+            'ground_truth': '{"name": "Keychron Q1 Pro", "price": "199", "brand": "Keychron", "category": "keyboard"}',
+        },
+        {
+            'input': (
+                'Track your fitness goals with advanced health monitoring including ECG, blood oxygen, '
+                'and sleep tracking. The latest Garmin Venu 3 smartwatch also supports voice assistant '
+                'and contactless payments. Retail: $449.99.'
+            ),
+            'ground_truth': '{"name": "Garmin Venu 3", "price": "449.99", "brand": "Garmin", "category": "smartwatch"}',
+        },
+        {
+            'input': (
+                'Professional-grade blender with a 2.0 HP motor and 64-oz container. Perfect for '
+                'smoothies, soups, and nut butters. Backed by a 7-year warranty. '
+                'The Vitamix E310 Explorian is available at a special promotional price of three '
+                'hundred and forty-nine dollars.'
+            ),
+            'ground_truth': '{"name": "Vitamix E310 Explorian", "price": "349", "brand": "Vitamix", "category": "blender"}',
+        },
+        {
+            'input': (
+                'Compact and portable, this Bluetooth speaker delivers surprisingly loud 360-degree '
+                'sound. Waterproof (IP67) and dustproof, it is perfect for outdoor adventures. '
+                'JBL Charge 5 — now $179.95 at most authorized dealers.'
+            ),
+            'ground_truth': '{"name": "JBL Charge 5", "price": "179.95", "brand": "JBL", "category": "speaker"}',
+        },
+        {
+            'input': (
+                'The robot vacuum and mop combo navigates your home with LiDAR precision. '
+                'It empties its own dustbin and refills its mop pad automatically. '
+                'Roborock S8 MaxV Ultra is listed at $1799.99 on the official store.'
+            ),
+            'ground_truth': '{"name": "Roborock S8 MaxV Ultra", "price": "1799.99", "brand": "Roborock", "category": "robot vacuum"}',
+        },
+        {
+            'input': (
+                'Designed for creators, this graphics tablet features an 11.6-inch laminated display '
+                'with 8192 levels of pressure sensitivity. Works with all major drawing software. '
+                'Get the XP-Pen Artist 12 (2nd Gen) for just $229.99.'
+            ),
+            'ground_truth': '{"name": "XP-Pen Artist 12 2nd Gen", "price": "229.99", "brand": "XP-Pen", "category": "graphics tablet"}',
+        },
+        {
+            'input': (
+                'Stay cozy this winter with a smart thermostat that learns your schedule. '
+                'Compatible with Alexa, Google Assistant, and Apple HomeKit. Energy Star certified. '
+                'The ecobee Smart Thermostat Premium retails for $249.99.'
+            ),
+            'ground_truth': '{"name": "ecobee Smart Thermostat Premium", "price": "249.99", "brand": "ecobee", "category": "thermostat"}',
+        },
+    ],
 }
 
 
