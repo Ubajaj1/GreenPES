@@ -21,8 +21,7 @@
        in Large Language Models}
 
 % Authors hidden for blind submission (colm2026_conference handles this)
-\author{Anonymous\thanks{This work was conducted independently of the authors'
-professional roles and does not represent the views of any employer.}}
+\author{Anonymous}
 
 \begin{document}
 
@@ -31,6 +30,11 @@ professional roles and does not represent the views of any employer.}}
 \fi
 
 \maketitle
+
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
+\footnotetext[1]{This work was conducted independently of the authors'
+professional roles and does not represent the views of any employer.}
+\renewcommand{\thefootnote}{\arabic{footnote}}
 
 \input{sec_abstract}
 \input{sec_intro}
